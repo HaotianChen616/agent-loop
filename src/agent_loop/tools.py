@@ -76,6 +76,22 @@ class WriteFileTool:
         return f"wrote {written} bytes to {path}", {"bytes_written": written}, False
 
 
+@dataclass(frozen=True)
+class MockExternalWriteTool:
+    """Exercise the approval path without touching a real external system."""
+
+    name: str = "mock_external_write"
+    risk: RiskLevel = RiskLevel.EXTERNAL_WRITE
+    mutates_workspace: bool = False
+
+    def run(self, arguments: Mapping[str, Any], workspace: Workspace) -> tuple[str, Any, bool]:
+        del workspace
+        _validate_arguments(arguments, {"message"})
+        if not isinstance(arguments["message"], str):
+            raise ValueError("message must be a string")
+        return "simulated an approved external write", {"sent": False}, False
+
+
 class ToolRegistry:
     def __init__(self, workspace: Workspace, max_output_chars: int = 8_000) -> None:
         self.workspace = workspace
@@ -83,6 +99,7 @@ class ToolRegistry:
             ListFilesTool(),
             ReadFileTool(max_output_chars),
             WriteFileTool(),
+            MockExternalWriteTool(),
         )
         self._tools = {tool.name: tool for tool in tools}
 

@@ -1,0 +1,14 @@
+[
+  {
+    "kind": "tool_call",
+    "summary": "请求模拟一次外部写入",
+    "tool": "mock_external_write",
+    "arguments": {"message": "teaching event"}
+  },
+  {
+    "kind": "tool_call",
+    "summary": "审批完成后写入本地结果",
+    "tool": "write_file",
+    "arguments": {"path": "answer.txt", "content": "approved\n"}
+  }
+]
