@@ -138,5 +138,6 @@ python -m compileall -q src tests scenarios
 - 不实现多 Agent 编排、分布式队列或容器级强隔离；
 - Verifier 是场景作者提供的可信控制面代码；
 - OpenAI SDK 是可选依赖，默认教程不需要 API Key。
+- 安全 `apply` 依赖 POSIX 的 `O_NOFOLLOW`/`O_DIRECTORY`，v0 支持 macOS 和 Linux。
 
 这些限制是有意保留的扩展缝：后续方案穿刺应优先替换一个接口并复用同一 LoopEngine 和事件协议。
