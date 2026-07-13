@@ -1,0 +1,17 @@
+[build-system]
+requires = ["setuptools>=69"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "agent-loop"
+version = "0.1.0"
+description = "A minimal, inspectable agent loop for teaching and experiments"
+readme = "README.md"
+requires-python = ">=3.12"
+license = { text = "MIT" }
+
+[project.scripts]
+agent-loop = "agent_loop.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
