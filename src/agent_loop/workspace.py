@@ -85,9 +85,11 @@ class Workspace:
 
         digest = hashlib.sha256()
         for name in self.list_files(limit=100_000):
-            path = self.resolve(name)
-            if path.is_symlink():
+            # Check the unresolved directory entry.  Checking only the resolved
+            # path would miss symlinks whose target is still inside the workspace.
+            if (self.root / name).is_symlink():
                 raise PathViolation(f"cannot digest symlink: {name}")
+            path = self.resolve(name)
             digest.update(name.encode("utf-8"))
             digest.update(b"\0")
             digest.update(path.read_bytes())

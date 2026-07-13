@@ -189,6 +189,19 @@ class StateStore:
             path.write_text(content, encoding="utf-8")
         return path.relative_to(self.run_dir(run_id)).as_posix()
 
+    def write_application(
+        self, run_id: str, application_id: str, record: dict[str, Any]
+    ) -> str:
+        """Atomically persist an apply audit without changing Run state."""
+
+        if not application_id or not application_id.isalnum():
+            raise ValueError("application_id must be alphanumeric")
+        relative = Path("applications") / f"{application_id}.json"
+        path = self.run_dir(run_id) / relative
+        path.parent.mkdir(parents=True, exist_ok=True)
+        self._atomic_json(path, record)
+        return relative.as_posix()
+
     @staticmethod
     def _atomic_json(path: Path, value: Any) -> None:
         temporary = path.with_suffix(path.suffix + ".tmp")

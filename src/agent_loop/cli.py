@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Sequence
 
 from .agent import ScriptedAgent
+from .application import ApplyPreview, apply_run
 from .config import load_run_spec
 from .engine import LoopEngine
 from .storage import StateStore
@@ -52,6 +53,12 @@ def _parser() -> argparse.ArgumentParser:
     inspect = subcommands.add_parser("inspect", help="render a saved event timeline")
     inspect.add_argument("run_id")
     inspect.add_argument("--runs-dir", type=Path, default=Path(".agent-loop/runs"))
+
+    apply = subcommands.add_parser("apply", help="apply a completed workspace")
+    apply.add_argument("run_id")
+    apply.add_argument("target_dir", type=Path)
+    apply.add_argument("--runs-dir", type=Path, default=Path(".agent-loop/runs"))
+    apply.add_argument("--yes", action="store_true", help="confirm the displayed preview")
     return parser
 
 
@@ -76,6 +83,18 @@ def _print_result(state: RunState) -> None:
     )
 
 
+def _confirm_apply(preview: ApplyPreview, assume_yes: bool) -> bool:
+    print(f"Apply {len(preview.changes)} file(s) to {preview.target_dir}:")
+    for change in preview.changes:
+        print(f"  {change.operation:<6} {change.path} ({change.size_bytes} bytes)")
+    if assume_yes:
+        return True
+    try:
+        return input("Continue? [y/N] ").strip().lower() in {"y", "yes"}
+    except EOFError:
+        return False
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     args = _parser().parse_args(argv)
     try:
@@ -86,6 +105,17 @@ def main(argv: Sequence[str] | None = None) -> int:
                 ConsoleTrace.render_saved(event)
             _print_result(state)
             return _exit_code(state)
+
+        if args.command == "apply":
+            store = StateStore(args.runs_dir)
+            record = apply_run(
+                store,
+                args.run_id,
+                args.target_dir,
+                lambda preview: _confirm_apply(preview, args.yes),
+            )
+            print(f"application={record['application_id']} status={record['status']}")
+            return 0 if record["status"] == "applied" else 1
 
         trace = ConsoleTrace(args.step)
         store = StateStore(args.runs_dir, trace)

@@ -113,6 +113,16 @@ class WorkspaceTests(unittest.TestCase):
             with self.assertRaisesRegex(PathViolation, "escapes"):
                 workspace.read_text("escape.txt")
 
+    def test_digest_rejects_internal_symlink(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            workspace = self.make_workspace(directory)
+            (workspace.root / "alias.txt").symlink_to(
+                workspace.root / "requirements.txt"
+            )
+
+            with self.assertRaisesRegex(PathViolation, "cannot digest symlink"):
+                workspace.digest()
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -42,6 +42,24 @@ class CliTests(unittest.TestCase):
             self.assertEqual(paused, 2)
             self.assertEqual(completed, 0)
 
+    def test_apply_requires_an_explicit_yes_flag(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            runs = root / "runs"
+            target = root / "target"
+            target.mkdir()
+            with redirect_stdout(io.StringIO()):
+                run_code = main(
+                    ["run", str(HELLO), "--run-id", "cli-apply", "--runs-dir", str(runs)]
+                )
+                apply_code = main(
+                    ["apply", "cli-apply", str(target), "--runs-dir", str(runs), "--yes"]
+                )
+
+            self.assertEqual(run_code, 0)
+            self.assertEqual(apply_code, 0)
+            self.assertEqual((target / "implementation.txt").read_text(), "Hello, loop!\n")
+
 
 if __name__ == "__main__":
     unittest.main()
