@@ -195,6 +195,7 @@ class ToolResult:
     tool_name: str
     status: ToolStatus
     summary: str
+    output: Any = None
     artifact_refs: tuple[str, ...] = ()
     error_code: str | None = None
     duration_ms: int = 0
