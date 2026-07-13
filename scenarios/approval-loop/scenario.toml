@@ -1,0 +1,26 @@
+schema_version = 1
+scenario_id = "approval-loop"
+title = "高风险动作审批"
+learning_objective = "观察具体动作暂停、批准和精确恢复"
+goal = "演示一次审批后，在隔离区写入完成标记"
+acceptance_criteria = ["answer-present"]
+instructions = ["skill.md"]
+allowed_tools = ["mock_external_write", "write_file"]
+
+[workspace]
+seed = "fixture"
+
+[agent]
+kind = "scripted"
+script = "scripted_actions.json"
+
+[verification]
+script = "checks/verify.py"
+
+[budget]
+max_iterations = 4
+max_agent_calls = 4
+max_tool_calls = 4
+max_verifications = 5
+max_elapsed_seconds = 30
+max_same_failure = 2

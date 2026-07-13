@@ -77,7 +77,53 @@ class LoopEngine:
         )
         return self._drive(state, workspace, deadline)
 
-    def _drive(self, state: RunState, workspace: Workspace, deadline: float) -> RunState:
+    def resume(self, run_id: str, approval: bool | None = None) -> RunState:
+        state = self.store.recover(run_id)
+        manifest = self.store.load_manifest(run_id)
+        if manifest["scenario"]["digest"] != self.spec.digest:
+            raise ConfigError("scenario changed since the run was created")
+        if state.is_terminal:
+            return state
+
+        workspace = Workspace.open(
+            self.spec.workspace, self.store.run_dir(run_id) / "workspace"
+        )
+        approved_action: tuple[str, AgentDecision] | None = None
+        if state.status is RunStatus.NEEDS_REVIEW:
+            pending = state.pending_approval
+            if not pending or approval is None:
+                return state
+            if approval is False:
+                state.pending_approval = None
+                self._transition(
+                    state, RunStatus.CANCELLED, "approval rejected", "approval_resolved"
+                )
+                return state
+            if pending["workspace_digest"] != workspace.digest():
+                self._transition(
+                    state, RunStatus.FAILED, "workspace changed after approval request"
+                )
+                return state
+            decision = self._validate_decision(pending["decision"])
+            approved_action = (str(pending["action_id"]), decision)
+            state.pending_approval = None
+            self._transition(
+                state, RunStatus.RUNNING, "approval granted", "approval_resolved"
+            )
+
+        restore = getattr(self.agent, "restore", None)
+        if callable(restore):
+            restore(state.budget_usage.agent_calls)
+        deadline = self.clock() + self.spec.budget.max_elapsed_seconds
+        return self._drive(state, workspace, deadline, approved_action)
+
+    def _drive(
+        self,
+        state: RunState,
+        workspace: Workspace,
+        deadline: float,
+        approved_action: tuple[str, AgentDecision] | None = None,
+    ) -> RunState:
         tools = ToolRegistry(workspace, self.spec.context.max_tool_output_chars)
         # Validate configured tools before the first model call.
         tools.definitions(self.spec.allowed_tools)
@@ -91,6 +137,13 @@ class LoopEngine:
             state, workspace, verifier, deadline
         ):
             return state
+
+        if approved_action and self._execute_approved_tool(
+            state, workspace, tools, approved_action, deadline
+        ):
+            tool = tools.get(approved_action[1].tool or "")
+            if tool.mutates_workspace and self._verify(state, workspace, verifier, deadline):
+                return state
 
         while not state.is_terminal and state.status is not RunStatus.NEEDS_REVIEW:
             budget = self.stop_policy.before_iteration(state, self.spec, elapsed())
@@ -167,7 +220,9 @@ class LoopEngine:
                 "decision": decision.to_dict(),
                 "workspace_digest": workspace.digest(),
             }
-            self._transition(state, RunStatus.NEEDS_REVIEW, authorization.reason)
+            self._transition(
+                state, RunStatus.NEEDS_REVIEW, authorization.reason, "approval_requested"
+            )
             return False
         if authorization.denied:
             result = ToolResult(
@@ -197,7 +252,49 @@ class LoopEngine:
             "decision": decision.to_dict(),
             "workspace_digest": workspace.digest(),
         }
-        self.store.checkpoint(state, "tool_started", f"starting {tool.name}")
+        self.store.checkpoint(
+            state, "tool_started", f"starting {tool.name} action={action_id}"
+        )
+        result = tools.execute(action_id, tool.name, decision.arguments)
+        state.in_flight_action = None
+        self._save_tool_result(state, result, "tool_completed")
+        return result.status is ToolStatus.SUCCESS
+
+    def _execute_approved_tool(
+        self,
+        state: RunState,
+        workspace: Workspace,
+        tools: ToolRegistry,
+        approved_action: tuple[str, AgentDecision],
+        deadline: float,
+    ) -> bool:
+        action_id, decision = approved_action
+        if decision.tool not in self.spec.allowed_tools:
+            self._transition(state, RunStatus.FAILED, "approved tool is no longer allowed")
+            return False
+        tool = tools.get(decision.tool)
+        if tool.risk not in self.spec.policy.require_approval:
+            self._transition(state, RunStatus.FAILED, "approved action has unexpected risk")
+            return False
+        for budget in (
+            self._time_budget(deadline),
+            self.stop_policy.before_tool(state, self.spec),
+        ):
+            self._record_stop_decision(state, budget)
+            if budget.should_stop:
+                self._transition(state, budget.status, budget.reason)
+                return False
+
+        state.budget_usage.tool_calls += 1
+        state.in_flight_action = {
+            "action_id": action_id,
+            "decision": decision.to_dict(),
+            "workspace_digest": workspace.digest(),
+            "approved": True,
+        }
+        self.store.checkpoint(
+            state, "tool_started", f"starting approved {tool.name} action={action_id}"
+        )
         result = tools.execute(action_id, tool.name, decision.arguments)
         state.in_flight_action = None
         self._save_tool_result(state, result, "tool_completed")

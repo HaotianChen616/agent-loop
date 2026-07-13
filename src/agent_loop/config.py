@@ -125,7 +125,7 @@ def load_run_spec(path: str | Path) -> RunSpec:
     for instruction in instructions:
         _scenario_path(root, instruction, "instructions")
     allowed_tools = _strings(data, "allowed_tools", required=True)
-    known_tools = {"list_files", "read_file", "write_file"}
+    known_tools = {"list_files", "read_file", "write_file", "mock_external_write"}
     if not allowed_tools or len(allowed_tools) != len(set(allowed_tools)) or not set(allowed_tools) <= known_tools:
         raise ConfigError("allowed_tools must be a non-empty unique subset of the v0 tools")
     agent_script = agent_data.get("script")

@@ -25,6 +25,14 @@ class Workspace:
         protected = frozenset(cls._relative_path(value) for value in spec.read_only)
         return cls(root, protected)
 
+    @classmethod
+    def open(cls, spec: WorkspaceSpec, root: str | Path) -> "Workspace":
+        resolved = Path(root).resolve()
+        if not resolved.is_dir():
+            raise PathViolation(f"workspace does not exist: {resolved}")
+        protected = frozenset(cls._relative_path(value) for value in spec.read_only)
+        return cls(resolved, protected)
+
     @staticmethod
     def _relative_path(value: str | Path) -> Path:
         path = Path(value)

@@ -44,6 +44,11 @@ class ScriptedAgent:
         self._index += 1
         return decision
 
+    def restore(self, completed_calls: int) -> None:
+        """Resume after a persisted call without replaying earlier decisions."""
+
+        self._index = min(max(0, completed_calls), len(self._decisions))
+
     @property
     def calls(self) -> int:
         return self._index
