@@ -1,0 +1,14 @@
+[
+  {
+    "kind": "tool_call",
+    "summary": "写入不能满足要求的内容",
+    "tool": "write_file",
+    "arguments": {"path": "implementation.txt", "content": "Wrong\n"}
+  },
+  {
+    "kind": "tool_call",
+    "summary": "重复相同的无效动作",
+    "tool": "write_file",
+    "arguments": {"path": "implementation.txt", "content": "Wrong\n"}
+  }
+]
