@@ -1,8 +1,11 @@
 # 教学型 Agent Loop：最小完整实现设计
 
-> 状态：Draft
+> 状态：v0 基线已实现；本文保留设计动机、目标接口和演进取舍
 > 版本：0.1
 > 目标读者：实现者、教学内容设计者、后续方案穿刺参与者
+>
+> 当前代码的真实组件关系、运行时序、扩展成本和已知限制，以
+> [ARCHITECTURE.md](ARCHITECTURE.md) 为准。本文中的伪代码、目标事件和阶段计划不保证与 v0 逐行一致。
 
 ## 1. 摘要
 
@@ -14,9 +17,9 @@ v0 的实现选择是：
 
 - 单进程、单任务、单 Agent、同步执行；
 - CLI 手工触发；
-- 临时目录隔离；
+- 每个 Run 独立复制目录隔离；
 - 本地 Markdown/TOML 上下文与 Skill；
-- 三个文件工具，不开放任意 Shell；
+- 三个文件工具和一个审批教学 mock，不开放任意 Shell；
 - 确定性 Verifier，不使用 Agent 自评作为完成依据；
 - `state.json + events.jsonl` 持久化；
 - 明确预算、终态、权限策略和人工关卡；
@@ -182,7 +185,12 @@ Agent 的动作、事件和状态使用 JSON，便于严格校验、回放和后
 
 ```text
 agent-loop/
-├── docs/DESIGN.md
+├── docs/
+│   ├── ARCHITECTURE.md
+│   ├── CLI.md
+│   ├── SCENARIO_AUTHORING.md
+│   ├── EXPERIMENTS.md
+│   └── DESIGN.md
 ├── README.md
 ├── pyproject.toml
 ├── src/agent_loop/
@@ -209,12 +217,15 @@ agent-loop/
 │   └── approval-loop/
 │       └── ...
 └── tests/
-    ├── test_happy_path.py
-    ├── test_feedback_path.py
-    ├── test_budget_path.py
-    ├── test_gate.py
+    ├── test_engine.py
+    ├── test_cli.py
+    ├── test_config_workspace.py
+    ├── test_tools_policy.py
+    ├── test_verifier.py
+    ├── test_storage.py
     ├── test_resume.py
-    └── test_workspace_escape.py
+    ├── test_application.py
+    └── test_openai_agent.py
 ```
 
 概念边界需要稳定，但 v0 不为每个接口创建独立包。核心循环应保持在一到两屏代码内。
@@ -251,6 +262,7 @@ read_only = ["requirements.txt"]
 
 [agent]
 kind = "scripted" # 也可以由 CLI 覆盖为 llm
+script = "scripted_actions.json"
 request_timeout_seconds = 30
 max_output_tokens = 1000
 
@@ -269,11 +281,11 @@ max_same_failure = 2
 
 [policy]
 auto_allow = ["read", "local_write"]
-require_approval = ["export"]
-deny = ["network", "external_write", "irreversible"]
+require_approval = ["external_write"]
+deny = ["irreversible"]
 ```
 
-实现加载时应将已知路径字段解析为 Scenario 根目录下的绝对路径。`verification.script` 始终从 Scenario 控制区加载，不复制到 Agent workspace；验证输入是工作区的只读快照。
+实现加载时应将已知路径字段解析为 Scenario 根目录下的绝对路径。`verification.script` 始终从 Scenario 控制区加载，不复制到 Agent workspace；验证输入是工作区的一次性副本。
 
 ### 9.1 成功标准
 
@@ -635,7 +647,7 @@ ContextBuilder 必须：
 .agent-loop/runs/<run-id>/workspace/
 ```
 
-Agent 只能访问该目录。`workspace.read_only` 声明的任务材料也不可修改。实现必须防止：
+通过内置工具的 Agent 动作只能访问该目录；自定义 AgentAdapter 本身是可信宿主代码。`workspace.read_only` 声明的任务材料也不可修改。实现必须防止：
 
 - `../` 和绝对路径逃逸；
 - 通过符号链接逃逸；
@@ -657,7 +669,7 @@ read < local_write < external_write < irreversible
 
 - `read`、隔离目录内的 `local_write` 自动允许；
 - 把结果写回源目录的 `export/apply` 需要用户显式执行和确认；
-- `external_write`、`irreversible`、网络和未知动作默认拒绝；
+- `external_write` 默认需要审批；`irreversible` 和未知动作默认拒绝，默认工具集不提供业务网络能力；
 - 无交互模式遇到需要审批的动作进入 `needs_review`，不得自动放行。
 
 批准必须绑定具体 `action_id`、动作和参数摘要，不提供“一次批准永久开放全部权限”。
@@ -775,6 +787,8 @@ revision
 - 对副作用而言，`in_flight_action` 比是否存在 `tool_started` 事件更权威。
 
 ### 17.2 事件
+
+下面是设计期的目标事件词汇。v0 合并了其中部分阶段；查看当前实际事件时，应以 `agent-loop inspect`、`events.jsonl` 和 [ARCHITECTURE.md](ARCHITECTURE.md#9-持久化与崩溃恢复) 为准。
 
 最低事件集合：
 
@@ -899,6 +913,8 @@ agent-loop apply <run-id> <target-dir>
 
 ### 19.1 实验可复现信息
 
+下面列的是目标信息集合。当前 v0 manifest 只冻结 Scenario/摘要和 Agent/model；尚未自动记录 git commit、Python/依赖版本、全部组件版本、累计费用等信息，方案穿刺时按 [EXPERIMENTS.md](EXPERIMENTS.md) 补充保存。
+
 `manifest.json` 至少记录：
 
 - Scenario ID、内容摘要和 git commit（如存在）；
@@ -962,7 +978,9 @@ v0 不建设实验管理平台，只保证这些数据可读取和可比较。
 - 核心 Engine 不依赖具体模型 Provider、具体 Scenario 或具体 Verifier；
 - 文档能让学习者沿事件时间线解释每一轮为何继续或停止。
 
-## 21. 分阶段实现计划
+## 21. 原分阶段实现计划
+
+以下内容保留为实现历史。Phase 0–2 的 v0 基线已经完成，后续工作从 Phase 3 的方案穿刺开始。
 
 ### Phase 0：确定性闭环骨架
 
@@ -1045,4 +1063,4 @@ Trigger
 
 如果 Agent 可以在没有外部证据时宣布完成、如果状态只存在于对话中、如果动作可以绕过隔离和权限、如果失败能无限重试，或者如果无法解释停止原因，那么实现再小也不是一个完整的 Loop Engineering 系统。
 
-反之，单进程、一个 Agent、三个工具、一个确定性 Verifier 和本地文件状态，已经足以成为“五脏俱全”的教学与方案穿刺基线。
+反之，单进程、一个 Agent、三个文件工具、一个审批教学 mock、一个确定性 Verifier 和本地文件状态，已经足以成为“五脏俱全”的教学与方案穿刺基线。
