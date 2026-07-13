@@ -133,6 +133,14 @@ def load_run_spec(path: str | Path) -> RunSpec:
         if not isinstance(agent_script, str):
             raise ConfigError("agent.script must name an existing scenario file")
         agent_script = str(_scenario_path(root, agent_script, "agent.script"))
+    agent_kind = agent_data.get("kind", "scripted")
+    if agent_kind not in {"scripted", "llm"}:
+        raise ConfigError("agent.kind must be 'scripted' or 'llm'")
+    agent_model = agent_data.get("model")
+    if agent_model is not None and (
+        not isinstance(agent_model, str) or not agent_model.strip()
+    ):
+        raise ConfigError("agent.model must be a non-empty string")
 
     return RunSpec(
         schema_version=1,
@@ -152,10 +160,10 @@ def load_run_spec(path: str | Path) -> RunSpec:
             str(seed), "copy", _strings(workspace_data, "read_only")
         ),
         agent=AgentSpec(
-            str(agent_data.get("kind", "scripted")),
+            str(agent_kind),
             _positive(agent_data, "request_timeout_seconds", 30),
             _positive(agent_data, "max_output_tokens", 1_000),
-            agent_data.get("model"),
+            agent_model,
             agent_script,
         ),
         verification=VerificationSpec(

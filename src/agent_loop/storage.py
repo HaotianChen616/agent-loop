@@ -48,7 +48,12 @@ class StateStore:
             raise ValueError("run_id must contain lowercase letters, digits, and hyphens")
         return self.root / run_id
 
-    def create(self, spec: RunSpec, run_id: str | None = None) -> RunState:
+    def create(
+        self,
+        spec: RunSpec,
+        run_id: str | None = None,
+        runtime: dict[str, Any] | None = None,
+    ) -> RunState:
         run_id = run_id or uuid.uuid4().hex
         directory = self.run_dir(run_id)
         directory.mkdir(parents=True, exist_ok=False)
@@ -67,6 +72,8 @@ class StateStore:
             "schema_version": 1,
             "created_at": now,
             "scenario": jsonable(spec),
+            "runtime": runtime
+            or {"agent": spec.agent.kind, "model": spec.agent.model},
         }
         self._atomic_json(directory / "manifest.json", manifest)
         self.checkpoint(state, "run_started", f"started scenario {spec.scenario_id}")

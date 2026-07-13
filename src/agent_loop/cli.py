@@ -11,6 +11,7 @@ from .agent import ScriptedAgent
 from .application import ApplyPreview, apply_run
 from .config import load_run_spec
 from .engine import LoopEngine
+from .openai_agent import OpenAIResponsesAgent
 from .storage import StateStore
 from .types import AgentLoopError, LoopEvent, RunState, RunStatus
 
@@ -39,12 +40,16 @@ def _parser() -> argparse.ArgumentParser:
     run.add_argument("scenario", type=Path)
     run.add_argument("--run-id")
     run.add_argument("--runs-dir", type=Path, default=Path(".agent-loop/runs"))
+    run.add_argument("--agent", choices=("scripted", "llm"))
+    run.add_argument("--model")
     run.add_argument("--step", action="store_true")
 
     resume = subcommands.add_parser("resume", help="resume a persisted run")
     resume.add_argument("run_id")
     resume.add_argument("--scenario", type=Path)
     resume.add_argument("--runs-dir", type=Path, default=Path(".agent-loop/runs"))
+    resume.add_argument("--agent", choices=("scripted", "llm"))
+    resume.add_argument("--model")
     decision = resume.add_mutually_exclusive_group()
     decision.add_argument("--approve", action="store_true")
     decision.add_argument("--reject", action="store_true")
@@ -62,10 +67,21 @@ def _parser() -> argparse.ArgumentParser:
     return parser
 
 
-def _scripted_agent(spec):
-    if not spec.agent.script:
-        raise ValueError("scripted scenario requires agent.script")
-    return ScriptedAgent.from_file(spec.agent.script)
+def _agent(spec, kind: str | None = None, model: str | None = None):
+    selected = kind or spec.agent.kind
+    if selected == "scripted":
+        if model:
+            raise ValueError("--model can only be used with --agent llm")
+        if not spec.agent.script:
+            raise ValueError("scripted scenario requires agent.script")
+        return ScriptedAgent.from_file(spec.agent.script)
+    if selected == "llm":
+        return OpenAIResponsesAgent(
+            model or spec.agent.model or "",
+            spec.agent.request_timeout_seconds,
+            spec.agent.max_output_tokens,
+        )
+    raise ValueError(f"unknown agent kind: {selected}")
 
 
 def _exit_code(state: RunState) -> int:
@@ -121,13 +137,24 @@ def main(argv: Sequence[str] | None = None) -> int:
         store = StateStore(args.runs_dir, trace)
         if args.command == "run":
             spec = load_run_spec(args.scenario)
-            state = LoopEngine(spec, _scripted_agent(spec), store).start(args.run_id)
+            state = LoopEngine(spec, _agent(spec, args.agent, args.model), store).start(
+                args.run_id
+            )
         else:
             manifest = store.load_manifest(args.run_id)
             scenario = args.scenario or Path(manifest["scenario"]["scenario_root"]) / "scenario.toml"
             spec = load_run_spec(scenario)
             approval = True if args.approve else False if args.reject else None
-            state = LoopEngine(spec, _scripted_agent(spec), store).resume(
+            runtime = manifest.get("runtime", {})
+            state = LoopEngine(
+                spec,
+                _agent(
+                    spec,
+                    args.agent or runtime.get("agent"),
+                    args.model or runtime.get("model"),
+                ),
+                store,
+            ).resume(
                 args.run_id, approval
             )
         _print_result(state)

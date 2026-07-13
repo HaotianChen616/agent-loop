@@ -10,6 +10,46 @@ from .types import AgentLoopError, RiskLevel, ToolResult, ToolStatus
 from .workspace import Workspace
 
 
+TOOL_METADATA: dict[str, dict[str, Any]] = {
+    "list_files": {
+        "description": "List workspace file paths.",
+        "parameters": {
+            "type": "object",
+            "properties": {"limit": {"type": "integer", "minimum": 1, "maximum": 1000}},
+            "required": [],
+            "additionalProperties": False,
+        },
+    },
+    "read_file": {
+        "description": "Read one UTF-8 text file from the workspace.",
+        "parameters": {
+            "type": "object",
+            "properties": {"path": {"type": "string"}},
+            "required": ["path"],
+            "additionalProperties": False,
+        },
+    },
+    "write_file": {
+        "description": "Replace one UTF-8 text file inside the workspace.",
+        "parameters": {
+            "type": "object",
+            "properties": {"path": {"type": "string"}, "content": {"type": "string"}},
+            "required": ["path", "content"],
+            "additionalProperties": False,
+        },
+    },
+    "mock_external_write": {
+        "description": "Simulate an external write for the approval lesson.",
+        "parameters": {
+            "type": "object",
+            "properties": {"message": {"type": "string"}},
+            "required": ["message"],
+            "additionalProperties": False,
+        },
+    },
+}
+
+
 class Tool(Protocol):
     name: str
     risk: RiskLevel
@@ -114,7 +154,12 @@ class ToolRegistry:
         for name in allowed:
             tool = self.get(name)
             definitions.append(
-                {"name": name, "risk": tool.risk.value, "mutates_workspace": tool.mutates_workspace}
+                {
+                    "name": name,
+                    "risk": tool.risk.value,
+                    "mutates_workspace": tool.mutates_workspace,
+                    **TOOL_METADATA[name],
+                }
             )
         return tuple(definitions)
 
