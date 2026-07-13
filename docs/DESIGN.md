@@ -182,14 +182,16 @@ Agent 的动作、事件和状态使用 JSON，便于严格校验、回放和后
 
 ```text
 agent-loop/
-├── DESIGN.md
+├── docs/DESIGN.md
 ├── README.md
 ├── pyproject.toml
 ├── src/agent_loop/
 │   ├── cli.py          # run/resume/inspect/apply 入口与 CLI Trigger
 │   ├── types.py        # 稳定数据契约与 Protocol
 │   ├── engine.py       # 唯一主循环和生命周期控制器
-│   ├── agent.py        # ScriptedAgent 与真实模型适配器
+│   ├── agent.py        # ScriptedAgent
+│   ├── openai_agent.py # 可选的真实模型适配器
+│   ├── application.py  # completed 后的显式发布关卡
 │   ├── context.py      # Context/Skill 构造和长度控制
 │   ├── tools.py        # ToolRegistry、参数校验、文件工具
 │   ├── verifier.py     # 确定性验证和 VerificationReport
@@ -199,6 +201,8 @@ agent-loop/
 ├── scenarios/
 │   ├── hello-loop/
 │   │   ├── scenario.toml
+│   │   ├── happy.toml
+│   │   ├── budget.toml
 │   │   ├── skill.md
 │   │   ├── fixture/
 │   │   └── checks/
