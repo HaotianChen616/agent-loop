@@ -81,8 +81,10 @@ class ConfigTests(unittest.TestCase):
     def test_digest_includes_referenced_scenario_content(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             fixture = ScenarioFixture(Path(directory))
+            helper = fixture.root / "checks" / "helper.py"
+            helper.write_text("EXPECTED = 'first'\n")
             before = load_run_spec(fixture.path).digest
-            (fixture.root / "skill.md").write_text("Changed teaching guidance.\n")
+            helper.write_text("EXPECTED = 'second'\n")
 
             self.assertNotEqual(load_run_spec(fixture.path).digest, before)
 

@@ -151,6 +151,7 @@ class RunSpec:
     budget: BudgetLimits
     policy: PolicySpec
     scenario_root: str
+    scenario_file: str
     digest: str
 
 

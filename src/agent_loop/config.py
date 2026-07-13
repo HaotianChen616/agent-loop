@@ -71,13 +71,16 @@ def _scenario_path(root: Path, value: str, label: str, *, directory: bool = Fals
     return resolved
 
 
-def _scenario_digest(root: Path, seed: Path, referenced: list[Path]) -> str:
-    """Bind a Run to the TOML, skills, Agent script, verifier, and fixture."""
+def _scenario_digest(root: Path) -> str:
+    """Bind a Run to every stable file in the Scenario control directory."""
 
-    files = set(referenced)
-    for entry in seed.rglob("*"):
+    files: set[Path] = set()
+    for entry in root.rglob("*"):
+        relative = entry.relative_to(root)
         if entry.is_symlink():
-            raise ConfigError("workspace.seed cannot contain symbolic links")
+            raise ConfigError("scenario cannot contain symbolic links")
+        if "__pycache__" in relative.parts or entry.suffix == ".pyc":
+            continue
         if entry.is_file():
             files.add(entry)
     digest = hashlib.sha256()
@@ -141,9 +144,8 @@ def load_run_spec(path: str | Path) -> RunSpec:
         raise ConfigError("policy risk groups must not overlap")
 
     instructions = _strings(data, "instructions")
-    instruction_paths: list[Path] = []
     for instruction in instructions:
-        instruction_paths.append(_scenario_path(root, instruction, "instructions"))
+        _scenario_path(root, instruction, "instructions")
     allowed_tools = _strings(data, "allowed_tools", required=True)
     known_tools = {"list_files", "read_file", "write_file", "mock_external_write"}
     if not allowed_tools or len(allowed_tools) != len(set(allowed_tools)) or not set(allowed_tools) <= known_tools:
@@ -161,9 +163,6 @@ def load_run_spec(path: str | Path) -> RunSpec:
         not isinstance(agent_model, str) or not agent_model.strip()
     ):
         raise ConfigError("agent.model must be a non-empty string")
-    referenced = [scenario_file, script, *instruction_paths]
-    if agent_script:
-        referenced.append(Path(agent_script))
 
     return RunSpec(
         schema_version=1,
@@ -204,5 +203,6 @@ def load_run_spec(path: str | Path) -> RunSpec:
         ),
         policy=policy,
         scenario_root=str(root),
-        digest=_scenario_digest(root, seed, referenced),
+        scenario_file=str(scenario_file),
+        digest=_scenario_digest(root),
     )

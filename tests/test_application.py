@@ -85,6 +85,20 @@ class ApplicationTests(unittest.TestCase):
             with self.assertRaisesRegex(ApplyError, "completed"):
                 apply_run(store, state.run_id, target, lambda preview: True)
 
+    def test_target_symlink_is_never_followed(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            store, run_id = self.completed_run(root)
+            target = root / "target"
+            target.mkdir()
+            outside = root / "outside.txt"
+            outside.write_text("outside stays unchanged\n")
+            (target / "implementation.txt").symlink_to(outside)
+
+            with self.assertRaisesRegex(ApplyError, "safe regular file"):
+                apply_run(store, run_id, target, lambda preview: True)
+            self.assertEqual(outside.read_text(), "outside stays unchanged\n")
+
 
 if __name__ == "__main__":
     unittest.main()
