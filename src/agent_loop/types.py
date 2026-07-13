@@ -195,6 +195,7 @@ class ToolResult:
     tool_name: str
     status: ToolStatus
     summary: str
+    output: Any = None
     artifact_refs: tuple[str, ...] = ()
     error_code: str | None = None
     duration_ms: int = 0
@@ -246,11 +247,13 @@ class RunState:
     last_tool_result: dict[str, Any] | None = None
     last_verification: dict[str, Any] | None = None
     last_failure_fingerprint: str | None = None
+    last_workspace_digest: str | None = None
     same_failure_count: int = 0
     pending_approval: dict[str, Any] | None = None
     in_flight_action: dict[str, Any] | None = None
     stop_reason: str | None = None
     revision: int = 0
+    event_sequence: int = 0
 
     @property
     def is_terminal(self) -> bool:
