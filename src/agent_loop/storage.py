@@ -48,7 +48,12 @@ class StateStore:
             raise ValueError("run_id must contain lowercase letters, digits, and hyphens")
         return self.root / run_id
 
-    def create(self, spec: RunSpec, run_id: str | None = None) -> RunState:
+    def create(
+        self,
+        spec: RunSpec,
+        run_id: str | None = None,
+        runtime: dict[str, Any] | None = None,
+    ) -> RunState:
         run_id = run_id or uuid.uuid4().hex
         directory = self.run_dir(run_id)
         directory.mkdir(parents=True, exist_ok=False)
@@ -67,6 +72,8 @@ class StateStore:
             "schema_version": 1,
             "created_at": now,
             "scenario": jsonable(spec),
+            "runtime": runtime
+            or {"agent": spec.agent.kind, "model": spec.agent.model},
         }
         self._atomic_json(directory / "manifest.json", manifest)
         self.checkpoint(state, "run_started", f"started scenario {spec.scenario_id}")
@@ -188,6 +195,19 @@ class StateStore:
         else:
             path.write_text(content, encoding="utf-8")
         return path.relative_to(self.run_dir(run_id)).as_posix()
+
+    def write_application(
+        self, run_id: str, application_id: str, record: dict[str, Any]
+    ) -> str:
+        """Atomically persist an apply audit without changing Run state."""
+
+        if not application_id or not application_id.isalnum():
+            raise ValueError("application_id must be alphanumeric")
+        relative = Path("applications") / f"{application_id}.json"
+        path = self.run_dir(run_id) / relative
+        path.parent.mkdir(parents=True, exist_ok=True)
+        self._atomic_json(path, record)
+        return relative.as_posix()
 
     @staticmethod
     def _atomic_json(path: Path, value: Any) -> None:

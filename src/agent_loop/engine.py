@@ -71,7 +71,14 @@ class LoopEngine:
 
     def start(self, run_id: str | None = None) -> RunState:
         deadline = self.clock() + self.spec.budget.max_elapsed_seconds
-        state = self.store.create(self.spec, run_id)
+        state = self.store.create(
+            self.spec,
+            run_id,
+            {
+                "agent": self.agent.name,
+                "model": getattr(self.agent, "model", None),
+            },
+        )
         workspace = Workspace.create(
             self.spec.workspace, self.store.run_dir(state.run_id) / "workspace"
         )
@@ -82,6 +89,12 @@ class LoopEngine:
         manifest = self.store.load_manifest(run_id)
         if manifest["scenario"]["digest"] != self.spec.digest:
             raise ConfigError("scenario changed since the run was created")
+        runtime = manifest.get("runtime")
+        if runtime and (
+            runtime.get("agent") != self.agent.name
+            or runtime.get("model") != getattr(self.agent, "model", None)
+        ):
+            raise ConfigError("resume must use the Run's original Agent and model")
         if state.is_terminal:
             return state
 
@@ -169,7 +182,12 @@ class LoopEngine:
                 continue
 
             state.last_action = decision.to_dict()
-            self.store.checkpoint(state, "action_proposed", decision.summary)
+            self.store.checkpoint(
+                state,
+                "action_proposed",
+                decision.summary,
+                usage=getattr(self.agent, "last_usage", None),
+            )
             time_budget = self._time_budget(deadline)
             self._record_stop_decision(state, time_budget)
             if time_budget.should_stop:

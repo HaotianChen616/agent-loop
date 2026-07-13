@@ -24,6 +24,10 @@ class PathViolation(AgentLoopError):
     """Raised when a tool attempts to leave or mutate a protected workspace."""
 
 
+class ApplyError(AgentLoopError):
+    """Raised when a completed run cannot be safely applied to a target."""
+
+
 class RunStatus(str, Enum):
     CREATED = "created"
     RUNNING = "running"
