@@ -8,7 +8,7 @@ from agent_loop.agent import ScriptedAgent
 from agent_loop.config import load_run_spec
 from agent_loop.engine import LoopEngine
 from agent_loop.storage import StateStore
-from agent_loop.types import RunStatus
+from agent_loop.types import ConfigError, RunStatus
 
 
 SCENARIO = Path(__file__).parents[1] / "scenarios" / "approval-loop" / "scenario.toml"
@@ -52,6 +52,15 @@ class ResumeTests(unittest.TestCase):
 
         state = engine.resume("changed-run", approval=True)
         self.assertEqual(state.status, RunStatus.FAILED)
+
+    def test_resume_rejects_a_different_agent(self) -> None:
+        engine, store = self.make_engine()
+        engine.start("agent-change-run")
+        wrong_agent = ScriptedAgent([])
+        wrong_agent.name = "different"
+
+        with self.assertRaisesRegex(ConfigError, "original Agent"):
+            LoopEngine(engine.spec, wrong_agent, store).resume("agent-change-run")
 
 
 if __name__ == "__main__":
