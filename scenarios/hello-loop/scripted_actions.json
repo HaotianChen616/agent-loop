@@ -1,0 +1,14 @@
+[
+  {
+    "kind": "tool_call",
+    "summary": "先写入一个不完整实现以演示验证反馈",
+    "tool": "write_file",
+    "arguments": {"path": "implementation.txt", "content": "Hello\n"}
+  },
+  {
+    "kind": "tool_call",
+    "summary": "根据验证反馈修正完整内容",
+    "tool": "write_file",
+    "arguments": {"path": "implementation.txt", "content": "Hello, loop!\n"}
+  }
+]

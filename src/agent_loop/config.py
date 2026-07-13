@@ -60,6 +60,17 @@ def _risk_levels(data: Mapping[str, Any], key: str, default: tuple[RiskLevel, ..
         raise ConfigError(f"{key} contains an unknown risk level") from exc
 
 
+def _scenario_path(root: Path, value: str, label: str, *, directory: bool = False) -> Path:
+    relative = Path(value)
+    if relative.is_absolute() or ".." in relative.parts:
+        raise ConfigError(f"{label} must stay inside the scenario directory")
+    resolved = (root / relative).resolve()
+    expected = resolved.is_dir() if directory else resolved.is_file()
+    if not resolved.is_relative_to(root) or not expected:
+        raise ConfigError(f"{label} does not resolve to a valid scenario path: {value}")
+    return resolved
+
+
 def load_run_spec(path: str | Path) -> RunSpec:
     """Read a scenario and freeze its resolved paths and content digest."""
 
@@ -80,16 +91,14 @@ def load_run_spec(path: str | Path) -> RunSpec:
 
     root = scenario_file.parent
     workspace_data = _table(data, "workspace")
-    seed = root / _text(workspace_data, "seed")
-    if not seed.is_dir():
-        raise ConfigError(f"workspace seed directory does not exist: {seed}")
+    seed = _scenario_path(root, _text(workspace_data, "seed"), "workspace.seed", directory=True)
     if workspace_data.get("mode", "copy") != "copy":
         raise ConfigError("v0 only supports workspace.mode = 'copy'")
 
     verification_data = _table(data, "verification")
-    script = root / _text(verification_data, "script")
-    if not script.is_file():
-        raise ConfigError(f"verification script does not exist: {script}")
+    script = _scenario_path(root, _text(verification_data, "script"), "verification.script")
+    if verification_data.get("kind", "python_script") != "python_script":
+        raise ConfigError("v0 only supports verification.kind = 'python_script'")
 
     context_data = _table(data, "context")
     agent_data = _table(data, "agent")
@@ -102,15 +111,28 @@ def load_run_spec(path: str | Path) -> RunSpec:
         ),
         deny=_risk_levels(policy_data, "deny", PolicySpec().deny),
     )
-    if (set(policy.auto_allow) & set(policy.require_approval)) or (
-        set(policy.auto_allow) & set(policy.deny)
+    if any(
+        left & right
+        for left, right in (
+            (set(policy.auto_allow), set(policy.require_approval)),
+            (set(policy.auto_allow), set(policy.deny)),
+            (set(policy.require_approval), set(policy.deny)),
+        )
     ):
         raise ConfigError("policy risk groups must not overlap")
 
     instructions = _strings(data, "instructions")
     for instruction in instructions:
-        if not (root / instruction).is_file():
-            raise ConfigError(f"instruction file does not exist: {instruction}")
+        _scenario_path(root, instruction, "instructions")
+    allowed_tools = _strings(data, "allowed_tools", required=True)
+    known_tools = {"list_files", "read_file", "write_file"}
+    if not allowed_tools or len(allowed_tools) != len(set(allowed_tools)) or not set(allowed_tools) <= known_tools:
+        raise ConfigError("allowed_tools must be a non-empty unique subset of the v0 tools")
+    agent_script = agent_data.get("script")
+    if agent_script is not None:
+        if not isinstance(agent_script, str):
+            raise ConfigError("agent.script must name an existing scenario file")
+        agent_script = str(_scenario_path(root, agent_script, "agent.script"))
 
     return RunSpec(
         schema_version=1,
@@ -120,7 +142,7 @@ def load_run_spec(path: str | Path) -> RunSpec:
         goal=_text(data, "goal"),
         acceptance_criteria=criteria,
         instructions=instructions,
-        allowed_tools=_strings(data, "allowed_tools", required=True),
+        allowed_tools=allowed_tools,
         context=ContextSpec(
             _positive(context_data, "max_input_chars", 30_000),
             _positive(context_data, "max_history_items", 8),
@@ -134,6 +156,7 @@ def load_run_spec(path: str | Path) -> RunSpec:
             _positive(agent_data, "request_timeout_seconds", 30),
             _positive(agent_data, "max_output_tokens", 1_000),
             agent_data.get("model"),
+            agent_script,
         ),
         verification=VerificationSpec(
             str(script),
