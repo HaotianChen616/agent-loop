@@ -9,7 +9,7 @@ from dataclasses import asdict, fields
 from datetime import UTC, datetime
 from enum import Enum
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 from .types import BudgetUsage, LoopEvent, RunSpec, RunState, RunStatus
 
@@ -35,8 +35,13 @@ def jsonable(value: Any) -> Any:
 class StateStore:
     """Use state.json as recovery truth and events.jsonl as its audit trail."""
 
-    def __init__(self, root: str | Path = ".agent-loop/runs") -> None:
+    def __init__(
+        self,
+        root: str | Path = ".agent-loop/runs",
+        event_listener: Callable[[LoopEvent], None] | None = None,
+    ) -> None:
         self.root = Path(root).resolve()
+        self.event_listener = event_listener
 
     def run_dir(self, run_id: str) -> Path:
         if not run_id or any(character not in "abcdefghijklmnopqrstuvwxyz0123456789-" for character in run_id):
@@ -166,6 +171,8 @@ class StateStore:
             usage=usage or {},
         )
         self._append_jsonl(directory / "events.jsonl", jsonable(event))
+        if self.event_listener:
+            self.event_listener(event)
         return event
 
     def write_artifact(self, run_id: str, name: str, content: str | bytes) -> str:
