@@ -39,6 +39,7 @@ max_same_failure = 1
 class ScenarioFixture:
     def __init__(self, root: Path) -> None:
         self.root = root
+        root.mkdir(parents=True, exist_ok=True)
         (root / "fixture").mkdir()
         (root / "checks").mkdir()
         (root / "fixture" / "requirements.txt").write_text("answer required\n")
