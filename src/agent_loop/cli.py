@@ -142,7 +142,11 @@ def main(argv: Sequence[str] | None = None) -> int:
             )
         else:
             manifest = store.load_manifest(args.run_id)
-            scenario = args.scenario or Path(manifest["scenario"]["scenario_root"]) / "scenario.toml"
+            saved_scenario = manifest["scenario"]
+            scenario = args.scenario or Path(
+                saved_scenario.get("scenario_file")
+                or Path(saved_scenario["scenario_root"]) / "scenario.toml"
+            )
             spec = load_run_spec(scenario)
             approval = True if args.approve else False if args.reject else None
             runtime = manifest.get("runtime", {})

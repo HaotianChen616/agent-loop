@@ -71,6 +71,28 @@ def _scenario_path(root: Path, value: str, label: str, *, directory: bool = Fals
     return resolved
 
 
+def _scenario_digest(root: Path) -> str:
+    """Bind a Run to every stable file in the Scenario control directory."""
+
+    files: set[Path] = set()
+    for entry in root.rglob("*"):
+        relative = entry.relative_to(root)
+        if entry.is_symlink():
+            raise ConfigError("scenario cannot contain symbolic links")
+        if "__pycache__" in relative.parts or entry.suffix == ".pyc":
+            continue
+        if entry.is_file():
+            files.add(entry)
+    digest = hashlib.sha256()
+    for path in sorted(files, key=lambda item: item.relative_to(root).as_posix()):
+        name = path.relative_to(root).as_posix()
+        digest.update(name.encode("utf-8"))
+        digest.update(b"\0")
+        digest.update(path.read_bytes())
+        digest.update(b"\0")
+    return digest.hexdigest()
+
+
 def load_run_spec(path: str | Path) -> RunSpec:
     """Read a scenario and freeze its resolved paths and content digest."""
 
@@ -181,5 +203,6 @@ def load_run_spec(path: str | Path) -> RunSpec:
         ),
         policy=policy,
         scenario_root=str(root),
-        digest=hashlib.sha256(raw).hexdigest(),
+        scenario_file=str(scenario_file),
+        digest=_scenario_digest(root),
     )

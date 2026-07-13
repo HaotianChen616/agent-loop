@@ -11,6 +11,8 @@ from agent_loop.cli import main
 
 ROOT = Path(__file__).parents[1]
 HELLO = ROOT / "scenarios" / "hello-loop" / "scenario.toml"
+HAPPY = ROOT / "scenarios" / "hello-loop" / "happy.toml"
+BUDGET = ROOT / "scenarios" / "hello-loop" / "budget.toml"
 APPROVAL = ROOT / "scenarios" / "approval-loop" / "scenario.toml"
 
 
@@ -28,6 +30,19 @@ class CliTests(unittest.TestCase):
             self.assertEqual(inspect_code, 0)
             self.assertIn("status=completed", output.getvalue())
             self.assertIn("VERIFICATION COMPLETED", output.getvalue())
+
+    def test_happy_and_budget_teaching_paths(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            with redirect_stdout(io.StringIO()):
+                happy = main(
+                    ["run", str(HAPPY), "--run-id", "happy-resume", "--runs-dir", directory]
+                )
+                resumed = main(["resume", "happy-resume", "--runs-dir", directory])
+                budget = main(["run", str(BUDGET), "--runs-dir", directory])
+
+            self.assertEqual(happy, 0)
+            self.assertEqual(resumed, 0)
+            self.assertEqual(budget, 1)
 
     def test_approval_resume(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

@@ -78,6 +78,16 @@ class ConfigTests(unittest.TestCase):
             with self.assertRaisesRegex(ConfigError, "inside"):
                 load_run_spec(fixture.path)
 
+    def test_digest_includes_referenced_scenario_content(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            fixture = ScenarioFixture(Path(directory))
+            helper = fixture.root / "checks" / "helper.py"
+            helper.write_text("EXPECTED = 'first'\n")
+            before = load_run_spec(fixture.path).digest
+            helper.write_text("EXPECTED = 'second'\n")
+
+            self.assertNotEqual(load_run_spec(fixture.path).digest, before)
+
 
 class WorkspaceTests(unittest.TestCase):
     def make_workspace(self, directory: str) -> Workspace:
@@ -122,6 +132,18 @@ class WorkspaceTests(unittest.TestCase):
 
             with self.assertRaisesRegex(PathViolation, "cannot digest symlink"):
                 workspace.digest()
+
+    def test_runs_do_not_share_mutable_workspaces(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            fixture = ScenarioFixture(Path(directory) / "scenario")
+            spec = load_run_spec(fixture.path)
+            first = Workspace.create(spec.workspace, Path(directory) / "run-a" / "workspace")
+            second = Workspace.create(spec.workspace, Path(directory) / "run-b" / "workspace")
+
+            first.write_text("answer.txt", "only run A\n")
+
+            self.assertFalse((second.root / "answer.txt").exists())
+            self.assertNotEqual(first.digest(), second.digest())
 
 
 if __name__ == "__main__":

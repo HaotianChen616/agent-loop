@@ -1,0 +1,31 @@
+schema_version = 1
+scenario_id = "hello-loop-happy"
+title = "一次动作后完成"
+learning_objective = "观察动作成功后由独立验证器确认完成"
+goal = "修改 implementation.txt，使其满足 requirements.txt 中的全部要求"
+acceptance_criteria = [
+  "requirements-file-unchanged",
+  "implementation-matches",
+]
+instructions = ["skill.md"]
+allowed_tools = ["list_files", "read_file", "write_file"]
+
+[workspace]
+seed = "fixture"
+read_only = ["requirements.txt"]
+
+[agent]
+kind = "scripted"
+script = "happy_actions.json"
+
+[verification]
+script = "checks/verify.py"
+timeout_seconds = 5
+
+[budget]
+max_iterations = 2
+max_agent_calls = 2
+max_tool_calls = 2
+max_verifications = 3
+max_elapsed_seconds = 30
+max_same_failure = 2

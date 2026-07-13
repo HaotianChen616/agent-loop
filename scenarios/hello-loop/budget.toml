@@ -1,0 +1,31 @@
+schema_version = 1
+scenario_id = "hello-loop-budget"
+title = "重复失败后停止"
+learning_objective = "观察无进展重试如何被 Stop Policy 截止"
+goal = "修改 implementation.txt，使其满足 requirements.txt 中的全部要求"
+acceptance_criteria = [
+  "requirements-file-unchanged",
+  "implementation-matches",
+]
+instructions = ["skill.md"]
+allowed_tools = ["list_files", "read_file", "write_file"]
+
+[workspace]
+seed = "fixture"
+read_only = ["requirements.txt"]
+
+[agent]
+kind = "scripted"
+script = "budget_actions.json"
+
+[verification]
+script = "checks/verify.py"
+timeout_seconds = 5
+
+[budget]
+max_iterations = 3
+max_agent_calls = 3
+max_tool_calls = 3
+max_verifications = 4
+max_elapsed_seconds = 30
+max_same_failure = 2
