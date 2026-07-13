@@ -77,6 +77,63 @@ class StateStore:
         data["budget_usage"] = BudgetUsage(**data.get("budget_usage", {}))
         return RunState(**data)
 
+    def load_manifest(self, run_id: str) -> dict[str, Any]:
+        return json.loads(
+            (self.run_dir(run_id) / "manifest.json").read_text(encoding="utf-8")
+        )
+
+    def read_events(self, run_id: str) -> tuple[dict[str, Any], ...]:
+        path = self.run_dir(run_id) / "events.jsonl"
+        return tuple(json.loads(line) for line in path.read_text(encoding="utf-8").splitlines())
+
+    def recover(self, run_id: str) -> RunState:
+        """Reconcile the audit tail with state.json without replaying side effects."""
+
+        state = self.load(run_id)
+        path = self.run_dir(run_id) / "events.jsonl"
+        raw_lines = path.read_text(encoding="utf-8").splitlines()
+        valid: list[dict[str, Any]] = []
+        truncated_tail = False
+        corrupt_middle = False
+        for index, line in enumerate(raw_lines):
+            try:
+                valid.append(json.loads(line))
+            except json.JSONDecodeError:
+                if index == len(raw_lines) - 1:
+                    truncated_tail = True
+                else:
+                    corrupt_middle = True
+                break
+
+        if truncated_tail:
+            # A partial final write is safe to discard because state was committed first.
+            path.write_text(
+                "".join(json.dumps(item, ensure_ascii=False, sort_keys=True) + "\n" for item in valid),
+                encoding="utf-8",
+            )
+
+        last_revision = max((int(item.get("state_revision", 0)) for item in valid), default=0)
+        last_sequence = max((int(item.get("sequence", 0)) for item in valid), default=0)
+        reasons: list[str] = []
+        if state.revision > last_revision:
+            reasons.append("state snapshot was ahead of the event log")
+        if truncated_tail:
+            reasons.append("truncated an incomplete event tail")
+        if corrupt_middle or last_revision > state.revision:
+            state.revision = max(state.revision, last_revision)
+            state.event_sequence = max(state.event_sequence, last_sequence)
+            state.status = RunStatus.NEEDS_REVIEW
+            state.stop_reason = "event log is ahead of or corrupt relative to state"
+            reasons.append(state.stop_reason)
+        if state.in_flight_action:
+            state.status = RunStatus.NEEDS_REVIEW
+            state.stop_reason = "an in-flight action has an unknown result"
+            reasons.append(state.stop_reason)
+
+        if reasons:
+            self.checkpoint(state, "recovery_performed", "; ".join(reasons))
+        return state
+
     def checkpoint(
         self,
         state: RunState,
