@@ -111,6 +111,11 @@ def load_run_spec(path: str | Path) -> RunSpec:
     for instruction in instructions:
         if not (root / instruction).is_file():
             raise ConfigError(f"instruction file does not exist: {instruction}")
+    agent_script = agent_data.get("script")
+    if agent_script is not None:
+        if not isinstance(agent_script, str) or not (root / agent_script).is_file():
+            raise ConfigError("agent.script must name an existing scenario file")
+        agent_script = str((root / agent_script).resolve())
 
     return RunSpec(
         schema_version=1,
@@ -134,6 +139,7 @@ def load_run_spec(path: str | Path) -> RunSpec:
             _positive(agent_data, "request_timeout_seconds", 30),
             _positive(agent_data, "max_output_tokens", 1_000),
             agent_data.get("model"),
+            agent_script,
         ),
         verification=VerificationSpec(
             str(script),

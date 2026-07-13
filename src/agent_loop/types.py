@@ -91,6 +91,7 @@ class AgentSpec:
     request_timeout_seconds: int = 30
     max_output_tokens: int = 1_000
     model: str | None = None
+    script: str | None = None
 
 
 @dataclass(frozen=True)
