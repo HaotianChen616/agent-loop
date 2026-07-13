@@ -6,6 +6,7 @@ keeps runs inspectable and lets experiments replace one component at a time.
 
 from __future__ import annotations
 
+import json
 from dataclasses import asdict, dataclass, field
 from enum import Enum
 from typing import Any, Mapping
@@ -184,7 +185,15 @@ class AgentDecision:
         elif tool is not None or arguments:
             raise ConfigError(f"{kind.value} cannot include a tool call")
 
-        return cls(kind, summary, tool, dict(arguments), value.get("reason"))
+        reason = value.get("reason")
+        if reason is not None and not isinstance(reason, str):
+            raise ConfigError("agent decision reason must be a string")
+        try:
+            json.dumps(dict(arguments))
+        except (TypeError, ValueError) as exc:
+            raise ConfigError("tool arguments must be JSON serializable") from exc
+
+        return cls(kind, summary, tool, dict(arguments), reason)
 
     def to_dict(self) -> dict[str, Any]:
         return {**asdict(self), "kind": self.kind.value}

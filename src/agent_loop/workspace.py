@@ -58,7 +58,7 @@ class Workspace:
     def read_text(self, value: str | Path, *, max_chars: int = 100_000) -> str:
         path = self.resolve(value)
         if not path.is_file():
-            raise PathViolation(f"file does not exist: {value}")
+            raise FileNotFoundError(f"file does not exist: {value}")
         text = path.read_text(encoding="utf-8")
         if len(text) > max_chars:
             raise PathViolation(f"file exceeds read limit: {value}")

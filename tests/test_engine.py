@@ -16,12 +16,12 @@ SCENARIO = Path(__file__).parents[1] / "scenarios" / "hello-loop"
 
 
 class EngineTests(unittest.TestCase):
-    def run_with(self, agent: ScriptedAgent, scenario: Path = SCENARIO):
+    def run_with(self, agent: ScriptedAgent, scenario: Path = SCENARIO, **engine_options):
         temporary = tempfile.TemporaryDirectory()
         self.addCleanup(temporary.cleanup)
         spec = load_run_spec(scenario / "scenario.toml")
         store = StateStore(Path(temporary.name) / "runs")
-        state = LoopEngine(spec, agent, store).start("engine-run")
+        state = LoopEngine(spec, agent, store, **engine_options).start("engine-run")
         return state, store
 
     def test_feedback_path_completes_with_verifier_evidence(self) -> None:
@@ -65,6 +65,44 @@ class EngineTests(unittest.TestCase):
         )
         state, _ = self.run_with(agent)
         self.assertNotEqual(state.status, RunStatus.COMPLETED)
+
+    def test_elapsed_budget_is_rechecked_after_agent_call(self) -> None:
+        correct = AgentDecision(
+            DecisionKind.TOOL_CALL,
+            "write a correct answer",
+            "write_file",
+            {"path": "implementation.txt", "content": "Hello, loop!\n"},
+        )
+        clock = iter([0.0, 0.1, 0.2, 0.3, 31.0]).__next__
+        state, _ = self.run_with(ScriptedAgent([correct]), clock=clock)
+
+        self.assertEqual(state.status, RunStatus.BUDGET_EXHAUSTED)
+        self.assertEqual(state.budget_usage.tool_calls, 0)
+
+    def test_invalid_adapter_output_cannot_support_blocked_claim(self) -> None:
+        invalid = AgentDecision(
+            DecisionKind.TOOL_CALL,
+            "invalid arguments",
+            "write_file",
+            {"path": "answer.txt", "content": object()},
+        )
+        blocked = AgentDecision(DecisionKind.BLOCKED, "cannot continue")
+        state, _ = self.run_with(ScriptedAgent([invalid, blocked]))
+
+        self.assertEqual(state.status, RunStatus.NEEDS_REVIEW)
+        self.assertEqual(state.last_tool_result["tool_name"], "agent")
+
+    def test_fresh_missing_file_error_can_support_blocked_claim(self) -> None:
+        missing = AgentDecision(
+            DecisionKind.TOOL_CALL,
+            "read required input",
+            "read_file",
+            {"path": "missing.txt"},
+        )
+        blocked = AgentDecision(DecisionKind.BLOCKED, "required input is missing")
+        state, _ = self.run_with(ScriptedAgent([missing, blocked]))
+
+        self.assertEqual(state.status, RunStatus.BLOCKED)
 
 
 if __name__ == "__main__":
