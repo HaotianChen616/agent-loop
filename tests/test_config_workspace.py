@@ -69,6 +69,15 @@ class ConfigTests(unittest.TestCase):
             with self.assertRaisesRegex(ConfigError, "unique"):
                 load_run_spec(fixture.path)
 
+    def test_rejects_scenario_path_escape(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            fixture = ScenarioFixture(root / "scenario")
+            (root / "outside.py").write_text("print('{}')")
+            fixture.path.write_text(SCENARIO.replace('"checks/verify.py"', '"../outside.py"'))
+            with self.assertRaisesRegex(ConfigError, "inside"):
+                load_run_spec(fixture.path)
+
 
 class WorkspaceTests(unittest.TestCase):
     def make_workspace(self, directory: str) -> Workspace:
