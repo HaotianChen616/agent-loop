@@ -137,7 +137,9 @@ def _scan_workspace(root: Path) -> tuple[str, dict[str, bytes]]:
     return digest.hexdigest(), files
 
 
-def _safe_target_root(target_dir: str | Path, run_dir: Path) -> Path:
+def _safe_target_root(
+    target_dir: str | Path, run_dir: Path
+) -> tuple[Path, tuple[int, int]]:
     raw = Path(target_dir).expanduser()
     if raw.is_symlink():
         raise ApplyError("target directory cannot be a symbolic link")
@@ -149,7 +151,8 @@ def _safe_target_root(target_dir: str | Path, run_dir: Path) -> Path:
         raise ApplyError("target must be a directory")
     if root == run_dir or root.is_relative_to(run_dir):
         raise ApplyError("target directory cannot be inside the Run directory")
-    return root
+    metadata = root.stat()
+    return root, (metadata.st_dev, metadata.st_ino)
 
 
 def _validate_target_name(root: Path, name: str, protected: Path) -> tuple[str, ...]:
@@ -324,10 +327,13 @@ def apply_run(
     workspace_digest, files = _scan_workspace(workspace_root)
     if workspace_digest != state.last_workspace_digest:
         raise ApplyError("workspace changed after its passing verification")
-    target = _safe_target_root(target_dir, run_dir)
+    target, expected_target_identity = _safe_target_root(target_dir, run_dir)
     _require_safe_open_support()
     target_fd = os.open(target, _DIRECTORY_FLAGS)
     target_identity = os.fstat(target_fd)
+    if (target_identity.st_dev, target_identity.st_ino) != expected_target_identity:
+        os.close(target_fd)
+        raise ApplyError("target directory changed while it was being opened")
     application_id = uuid.uuid4().hex
     created_at = utc_now()
     try:
