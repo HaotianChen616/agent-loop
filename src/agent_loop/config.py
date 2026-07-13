@@ -1,0 +1,154 @@
+"""Load and validate a teaching scenario from TOML."""
+
+from __future__ import annotations
+
+import hashlib
+import tomllib
+from pathlib import Path
+from typing import Any, Mapping
+
+from .types import (
+    AgentSpec,
+    BudgetLimits,
+    ConfigError,
+    ContextSpec,
+    PolicySpec,
+    RiskLevel,
+    RunSpec,
+    VerificationSpec,
+    WorkspaceSpec,
+)
+
+
+def _table(data: Mapping[str, Any], key: str) -> Mapping[str, Any]:
+    value = data.get(key, {})
+    if not isinstance(value, Mapping):
+        raise ConfigError(f"{key} must be a TOML table")
+    return value
+
+
+def _strings(data: Mapping[str, Any], key: str, *, required: bool = False) -> tuple[str, ...]:
+    value = data.get(key)
+    if value is None and not required:
+        return ()
+    if not isinstance(value, list) or not all(isinstance(item, str) and item for item in value):
+        raise ConfigError(f"{key} must be a list of non-empty strings")
+    return tuple(value)
+
+
+def _text(data: Mapping[str, Any], key: str) -> str:
+    value = data.get(key)
+    if not isinstance(value, str) or not value.strip():
+        raise ConfigError(f"{key} must be a non-empty string")
+    return value.strip()
+
+
+def _positive(data: Mapping[str, Any], key: str, default: int) -> int:
+    value = data.get(key, default)
+    if not isinstance(value, int) or isinstance(value, bool) or value <= 0:
+        raise ConfigError(f"{key} must be a positive integer")
+    return value
+
+
+def _risk_levels(data: Mapping[str, Any], key: str, default: tuple[RiskLevel, ...]) -> tuple[RiskLevel, ...]:
+    raw = data.get(key)
+    if raw is None:
+        return default
+    try:
+        return tuple(RiskLevel(value) for value in _strings(data, key))
+    except ValueError as exc:
+        raise ConfigError(f"{key} contains an unknown risk level") from exc
+
+
+def load_run_spec(path: str | Path) -> RunSpec:
+    """Read a scenario and freeze its resolved paths and content digest."""
+
+    scenario_file = Path(path).expanduser().resolve()
+    if not scenario_file.is_file():
+        raise ConfigError(f"scenario file does not exist: {scenario_file}")
+    raw = scenario_file.read_bytes()
+    try:
+        data = tomllib.loads(raw.decode("utf-8"))
+    except (UnicodeDecodeError, tomllib.TOMLDecodeError) as exc:
+        raise ConfigError(f"invalid scenario TOML: {exc}") from exc
+
+    if data.get("schema_version") != 1:
+        raise ConfigError("only scenario schema_version = 1 is supported")
+    criteria = _strings(data, "acceptance_criteria", required=True)
+    if not criteria or len(criteria) != len(set(criteria)):
+        raise ConfigError("acceptance_criteria must be non-empty and unique")
+
+    root = scenario_file.parent
+    workspace_data = _table(data, "workspace")
+    seed = root / _text(workspace_data, "seed")
+    if not seed.is_dir():
+        raise ConfigError(f"workspace seed directory does not exist: {seed}")
+    if workspace_data.get("mode", "copy") != "copy":
+        raise ConfigError("v0 only supports workspace.mode = 'copy'")
+
+    verification_data = _table(data, "verification")
+    script = root / _text(verification_data, "script")
+    if not script.is_file():
+        raise ConfigError(f"verification script does not exist: {script}")
+
+    context_data = _table(data, "context")
+    agent_data = _table(data, "agent")
+    budget_data = _table(data, "budget")
+    policy_data = _table(data, "policy")
+    policy = PolicySpec(
+        auto_allow=_risk_levels(policy_data, "auto_allow", PolicySpec().auto_allow),
+        require_approval=_risk_levels(
+            policy_data, "require_approval", PolicySpec().require_approval
+        ),
+        deny=_risk_levels(policy_data, "deny", PolicySpec().deny),
+    )
+    if (set(policy.auto_allow) & set(policy.require_approval)) or (
+        set(policy.auto_allow) & set(policy.deny)
+    ):
+        raise ConfigError("policy risk groups must not overlap")
+
+    instructions = _strings(data, "instructions")
+    for instruction in instructions:
+        if not (root / instruction).is_file():
+            raise ConfigError(f"instruction file does not exist: {instruction}")
+
+    return RunSpec(
+        schema_version=1,
+        scenario_id=_text(data, "scenario_id"),
+        title=_text(data, "title"),
+        learning_objective=_text(data, "learning_objective"),
+        goal=_text(data, "goal"),
+        acceptance_criteria=criteria,
+        instructions=instructions,
+        allowed_tools=_strings(data, "allowed_tools", required=True),
+        context=ContextSpec(
+            _positive(context_data, "max_input_chars", 30_000),
+            _positive(context_data, "max_history_items", 8),
+            _positive(context_data, "max_tool_output_chars", 8_000),
+        ),
+        workspace=WorkspaceSpec(
+            str(seed), "copy", _strings(workspace_data, "read_only")
+        ),
+        agent=AgentSpec(
+            str(agent_data.get("kind", "scripted")),
+            _positive(agent_data, "request_timeout_seconds", 30),
+            _positive(agent_data, "max_output_tokens", 1_000),
+            agent_data.get("model"),
+        ),
+        verification=VerificationSpec(
+            str(script),
+            str(verification_data.get("kind", "python_script")),
+            _positive(verification_data, "timeout_seconds", 10),
+        ),
+        budget=BudgetLimits(
+            _positive(budget_data, "max_iterations", 6),
+            _positive(budget_data, "max_agent_calls", 6),
+            _positive(budget_data, "max_tool_calls", 10),
+            _positive(budget_data, "max_verifications", 7),
+            _positive(budget_data, "max_elapsed_seconds", 120),
+            _positive(budget_data, "max_same_failure", 2),
+        ),
+        policy=policy,
+        scenario_root=str(root),
+        digest=hashlib.sha256(raw).hexdigest(),
+    )
