@@ -19,10 +19,11 @@ python -m pip install -e .
 
 ```text
 agent-loop run <scenario> [--run-id ID] [--runs-dir DIR]
-               [--agent scripted|llm] [--model MODEL] [--step]
+               [--agent scripted|llm] [--provider PROVIDER]
+               [--model MODEL] [--step]
 
 agent-loop resume <run-id> [--scenario FILE] [--runs-dir DIR]
-                  [--agent scripted|llm] [--model MODEL]
+                  [--agent scripted|llm] [--provider PROVIDER] [--model MODEL]
                   [--approve | --reject] [--step]
 
 agent-loop inspect <run-id> [--runs-dir DIR]
@@ -40,20 +41,22 @@ agent-loop run scenarios/hello-loop/scenario.toml --run-id quickstart
 
 `--run-id` 可省略，由系统生成。手工 ID 只能包含小写字母、数字和连字符，并且不能与已有 Run 重复。
 
-`--agent` 可以覆盖 Scenario 中的 Agent 类型。使用 `--agent llm` 时，模型必须通过 `--model` 或 Scenario 的 `agent.model` 显式提供：
+`--agent` 可以覆盖 Scenario 中的 Agent 类型。使用 `--agent llm` 时，Provider 可选 `openai` 或 `zhipu-coding-plan`，模型必须通过 `--model` 或 Scenario 的 `agent.model` 显式提供：
 
 ```bash
 python -m pip install -e '.[openai]'
 export OPENAI_API_KEY='...'
 agent-loop run scenarios/hello-loop/scenario.toml \
-  --agent llm --model your-model-id
+  --agent llm --provider openai --model your-model-id
 ```
+
+智谱 Coding Plan 使用 `ZAI_API_KEY` 和专属场景 `scenarios/hello-loop/zhipu.toml`，完整说明见 [PROVIDERS.md](PROVIDERS.md)。
 
 `--step` 会在每个持久事件后等待回车，适合逐步讲解，不适合无交互 CI。
 
 ## `resume`：恢复同一个事实包
 
-未显式传 `--scenario` 时，CLI 使用 manifest 保存的 Scenario 路径。恢复前会重新计算 Scenario digest，并要求 Agent 类型和 model 与原 Run 一致；定义发生变化时应创建新 Run，而不是继续旧实验。
+未显式传 `--scenario` 时，CLI 使用 manifest 保存的 Scenario 路径。恢复前会重新计算 Scenario digest，并要求 Agent、Provider 和 model 与原 Run 一致；定义发生变化时应创建新 Run，而不是继续旧实验。
 
 审批场景：
 

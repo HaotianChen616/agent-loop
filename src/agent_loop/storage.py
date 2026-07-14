@@ -73,7 +73,11 @@ class StateStore:
             "created_at": now,
             "scenario": jsonable(spec),
             "runtime": runtime
-            or {"agent": spec.agent.kind, "model": spec.agent.model},
+            or {
+                "agent": spec.agent.kind,
+                "provider": spec.agent.provider,
+                "model": spec.agent.model,
+            },
         }
         self._atomic_json(directory / "manifest.json", manifest)
         self.checkpoint(state, "run_started", f"started scenario {spec.scenario_id}")

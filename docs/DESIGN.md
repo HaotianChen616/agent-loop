@@ -198,7 +198,8 @@ agent-loop/
 │   ├── types.py        # 稳定数据契约与 Protocol
 │   ├── engine.py       # 唯一主循环和生命周期控制器
 │   ├── agent.py        # ScriptedAgent
-│   ├── openai_agent.py # 可选的真实模型适配器
+│   ├── maas_agent.py   # Provider 无关的真实模型适配器
+│   ├── providers/      # OpenAI、智谱等 MaaS Provider
 │   ├── application.py  # completed 后的显式发布关卡
 │   ├── context.py      # Context/Skill 构造和长度控制
 │   ├── tools.py        # ToolRegistry、参数校验、文件工具

@@ -1,0 +1,34 @@
+schema_version = 1
+scenario_id = "hello-loop-zhipu"
+title = "使用智谱 Coding Plan 驱动反馈闭环"
+learning_objective = "观察同一 LoopEngine 如何替换 MaaS Provider"
+goal = "修改 implementation.txt，使其满足 requirements.txt 中的全部要求"
+acceptance_criteria = [
+  "requirements-file-unchanged",
+  "implementation-matches",
+]
+instructions = ["skill.md"]
+allowed_tools = ["list_files", "read_file", "write_file"]
+
+[workspace]
+seed = "fixture"
+read_only = ["requirements.txt"]
+
+[agent]
+kind = "llm"
+provider = "zhipu-coding-plan"
+model = "glm-5.1"
+request_timeout_seconds = 30
+max_output_tokens = 1000
+
+[verification]
+script = "checks/verify.py"
+timeout_seconds = 5
+
+[budget]
+max_iterations = 6
+max_agent_calls = 6
+max_tool_calls = 6
+max_verifications = 7
+max_elapsed_seconds = 120
+max_same_failure = 2

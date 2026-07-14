@@ -78,7 +78,7 @@ flowchart LR
 | Goal / Success Criteria | 版本化 TOML Scenario | `config.py`, `RunSpec` |
 | Skills / Context | Markdown 指令、最近证据、剩余预算和工具定义 | `context.py` |
 | Isolation | 每个 Run 独立复制的工作区和路径约束 | `workspace.py` |
-| Agent | 可复现脚本 Agent、可选 OpenAI Adapter | `agent.py`, `openai_agent.py` |
+| Agent / MaaS | ScriptedAgent、MaaSAgent、OpenAI 与智谱 Provider | `agent.py`, `maas_agent.py`, `providers/` |
 | Tools | 显式注册、严格参数、有限输出的工具 | `tools.py` |
 | Authorization | 风险分级、默认拒绝和精确动作审批 | `policy.py`, `engine.py` |
 | Verifier | 在一次性快照上运行的可信 Python 检查器 | `verifier.py` |
@@ -100,7 +100,9 @@ src/agent_loop/
 ├── engine.py         # 正常驱动路径的状态迁移控制器和主循环
 ├── context.py        # 构造有界 AgentContext
 ├── agent.py          # AgentAdapter Protocol 和 ScriptedAgent
-├── openai_agent.py   # 可选 Responses API Adapter
+├── maas_agent.py     # Provider 无关的结构化决策校验
+├── providers/        # MaaS Protocol、OpenAI Responses、智谱 Coding Plan
+├── openai_agent.py   # 旧 OpenAI Agent 构造器兼容层
 ├── tools.py          # Tool Protocol、注册表、参数校验和执行结果
 ├── policy.py         # 动作授权、预算和停止决定
 ├── workspace.py      # Run 工作区、只读约束和路径隔离
@@ -210,7 +212,7 @@ Agent 每轮只能返回以下一种决策：
 | `request_verification` | 请求检查当前结果 | 直接运行 Verifier，不能自行完成 |
 | `blocked` | 声明缺少外部条件 | 仅有新近工具错误支持时进入 `blocked`，否则暂停复核 |
 
-`ScriptedAgent` 从 JSON 顺序读取动作，保证教程和 CI 可复现；`OpenAIResponsesAgent` 使用严格 JSON Schema、显式模型、超时、输出上限、禁用 SDK 重试和 `store=False`。Provider 重试属于外层 Loop，必须被预算和事件记录看见。
+`ScriptedAgent` 从 JSON 顺序读取动作，保证教程和 CI 可复现。`MaaSAgent` 统一解析 `AgentDecision`；`providers/` 隔离 Responses API 与 Chat Completions 差异。Provider 重试关闭，失败属于外层 Loop，必须被预算和事件记录看见。详见 [PROVIDERS.md](PROVIDERS.md)。
 
 ## 7. 验证与成功判定
 
@@ -385,7 +387,7 @@ Scenario 目录不能包含符号链接。目录内稳定文件都会进入 dige
 
 ### 增加 Agent Adapter
 
-实现 `name` 和 `next_action(context) -> AgentDecision`，即可在 Python 中直接组装 `LoopEngine`。若要从现有 CLI/TOML 选择，还需扩充 `cli.py` 和 `config.py` 中封闭的 Agent 类型列表。Adapter 应负责 Provider 请求与响应转换，但不能执行工具、设置状态或自行重试。需要恢复确定性游标时可提供 `restore(completed_calls)`；可选的 `model` 和 `last_usage` 会进入 manifest 或事件。
+实现 `name` 和 `next_action(context) -> AgentDecision`，即可在 Python 中直接组装 `LoopEngine`。模型服务优先实现 `MaaSProvider`，不要重复决策解析。Adapter/Provider 不能执行工具、设置状态或自行重试。需要恢复确定性游标时可提供 `restore(completed_calls)`；Provider 和 model 会进入 manifest，切换后不能 resume。
 
 ### 增加 Tool
 
@@ -421,6 +423,7 @@ StateStore 已经通过构造器传入，但尚无正式 Protocol。替代实现
 | 精确审批、拒绝和恢复约束 | `tests/test_resume.py` |
 | Apply 确认、摘要复核和符号链接防护 | `tests/test_application.py` |
 | OpenAI 严格输出、拒绝和不完整响应 | `tests/test_openai_agent.py` |
+| MaaS 契约、智谱请求与 Token 归一化 | `tests/test_maas_providers.py` |
 | CLI 的四个入口和教学路径 | `tests/test_cli.py` |
 
 本地验证：

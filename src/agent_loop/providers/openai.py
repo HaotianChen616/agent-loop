@@ -1,0 +1,87 @@
+"""OpenAI Responses API implementation of the MaaS boundary."""
+
+from __future__ import annotations
+
+from typing import Any, Mapping
+
+from .base import MaaSResponse, field_value, normalized_usage
+
+
+def _find_refusal(response: Any) -> str | None:
+    for item in field_value(response, "output", ()) or ():
+        for part in field_value(item, "content", ()) or ():
+            if field_value(part, "type") == "refusal":
+                return str(field_value(part, "refusal", "model refused the request"))
+    return None
+
+
+class OpenAIResponsesProvider:
+    """Request strict structured output from the OpenAI Responses API."""
+
+    name = "openai"
+
+    def __init__(
+        self,
+        model: str,
+        request_timeout_seconds: int,
+        max_output_tokens: int,
+        *,
+        client: Any | None = None,
+    ) -> None:
+        if not isinstance(model, str) or not model.strip():
+            raise ValueError("an explicit OpenAI model is required")
+        if request_timeout_seconds <= 0 or max_output_tokens <= 0:
+            raise ValueError("request timeout and output limit must be positive")
+        self.model = model.strip()
+        self.request_timeout_seconds = request_timeout_seconds
+        self.max_output_tokens = max_output_tokens
+        if client is None:
+            try:
+                from openai import OpenAI
+            except ImportError as exc:
+                raise RuntimeError("install agent-loop[openai] to use the OpenAI provider") from exc
+            # Retries belong to LoopEngine, where they are budgeted and audited.
+            client = OpenAI(max_retries=0, timeout=request_timeout_seconds)
+        self.client = client
+
+    def complete(
+        self,
+        *,
+        instructions: str,
+        prompt: str,
+        schema: Mapping[str, Any],
+    ) -> MaaSResponse:
+        response = self.client.responses.create(
+            model=self.model,
+            instructions=instructions,
+            input=prompt,
+            text={
+                "format": {
+                    "type": "json_schema",
+                    "name": "agent_decision",
+                    "strict": True,
+                    "schema": dict(schema),
+                }
+            },
+            max_output_tokens=self.max_output_tokens,
+            store=False,
+            timeout=self.request_timeout_seconds,
+        )
+        refusal = _find_refusal(response)
+        if refusal:
+            raise ValueError(f"model refusal: {refusal[:200]}")
+        status = field_value(response, "status")
+        if status != "completed":
+            details = field_value(response, "incomplete_details")
+            reason = field_value(details, "reason", "unknown")
+            raise ValueError(f"model response was {status or 'unknown'}: {reason}")
+
+        output = field_value(response, "output_text")
+        if not isinstance(output, str) or not output.strip():
+            raise ValueError("model returned no structured decision")
+        usage = normalized_usage(
+            field_value(response, "usage"),
+            input_name="input_tokens",
+            output_name="output_tokens",
+        )
+        return MaaSResponse(output, usage)

@@ -5,8 +5,11 @@ import tempfile
 import unittest
 from contextlib import redirect_stdout
 from pathlib import Path
+from types import SimpleNamespace
+from unittest.mock import patch
 
-from agent_loop.cli import main
+from agent_loop.cli import _agent, main
+from agent_loop.config import load_run_spec
 
 
 ROOT = Path(__file__).parents[1]
@@ -17,6 +20,20 @@ APPROVAL = ROOT / "scenarios" / "approval-loop" / "scenario.toml"
 
 
 class CliTests(unittest.TestCase):
+    def test_builds_the_selected_maas_provider(self) -> None:
+        spec = load_run_spec(HELLO)
+        provider = SimpleNamespace(name="zhipu-coding-plan", model="glm-5.1")
+        with patch("agent_loop.cli.create_provider", return_value=provider) as factory:
+            agent = _agent(spec, "llm", "glm-5.1", "zhipu-coding-plan")
+
+        self.assertEqual(agent.provider_name, "zhipu-coding-plan")
+        factory.assert_called_once_with(
+            "zhipu-coding-plan",
+            "glm-5.1",
+            spec.agent.request_timeout_seconds,
+            spec.agent.max_output_tokens,
+        )
+
     def test_run_and_inspect(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             output = io.StringIO()
