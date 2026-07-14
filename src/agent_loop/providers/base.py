@@ -1,4 +1,4 @@
-"""Provider-neutral contracts for model-as-a-service calls."""
+"""与厂商无关的 MaaS Provider 契约。"""
 
 from __future__ import annotations
 
@@ -8,14 +8,14 @@ from typing import Any, Mapping, Protocol
 
 @dataclass(frozen=True)
 class MaaSResponse:
-    """A provider response normalized for the Agent adapter."""
+    """经过 Provider 归一化、供 Agent 适配器消费的响应。"""
 
     output_text: str
     usage: Mapping[str, int] = field(default_factory=dict)
 
 
 class MaaSProvider(Protocol):
-    """Translate one bounded prompt into one structured model response."""
+    """把一次有界 Prompt 翻译为结构化模型响应。"""
 
     name: str
     model: str
@@ -30,7 +30,7 @@ class MaaSProvider(Protocol):
 
 
 def field_value(value: Any, name: str, default: Any = None) -> Any:
-    """Read SDK objects and mapping-shaped test doubles uniformly."""
+    """统一读取 SDK 对象和 Mapping 形态的测试替身。"""
 
     if isinstance(value, Mapping):
         return value.get(name, default)
@@ -43,7 +43,7 @@ def normalized_usage(
     input_name: str,
     output_name: str,
 ) -> dict[str, int]:
-    """Normalize provider token names without inventing missing values."""
+    """归一化各 Provider 的 Token 字段，但不虚构服务端未返回的数据。"""
 
     if usage is None:
         return {}

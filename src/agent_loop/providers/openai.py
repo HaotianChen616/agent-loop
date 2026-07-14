@@ -1,4 +1,4 @@
-"""OpenAI Responses API implementation of the MaaS boundary."""
+"""MaaS 边界的 OpenAI Responses API 实现。"""
 
 from __future__ import annotations
 
@@ -16,7 +16,7 @@ def _find_refusal(response: Any) -> str | None:
 
 
 class OpenAIResponsesProvider:
-    """Request strict structured output from the OpenAI Responses API."""
+    """通过 OpenAI Responses API 请求严格结构化输出。"""
 
     name = "openai"
 
@@ -40,7 +40,7 @@ class OpenAIResponsesProvider:
                 from openai import OpenAI
             except ImportError as exc:
                 raise RuntimeError("install agent-loop[openai] to use the OpenAI provider") from exc
-            # Retries belong to LoopEngine, where they are budgeted and audited.
+            # 重试属于 LoopEngine，必须受到预算约束并出现在审计事件中。
             client = OpenAI(max_retries=0, timeout=request_timeout_seconds)
         self.client = client
 
@@ -67,6 +67,7 @@ class OpenAIResponsesProvider:
             store=False,
             timeout=self.request_timeout_seconds,
         )
+        # 拒绝和不完整输出都不能被当作合法动作送入外层 Loop。
         refusal = _find_refusal(response)
         if refusal:
             raise ValueError(f"model refusal: {refusal[:200]}")

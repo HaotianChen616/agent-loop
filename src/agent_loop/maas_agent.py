@@ -1,4 +1,4 @@
-"""Provider-independent Agent adapter for model-as-a-service backends."""
+"""与具体 Provider 无关的 MaaS Agent 适配器。"""
 
 from __future__ import annotations
 
@@ -36,7 +36,7 @@ DECISION_SCHEMA = {
 
 
 class MaaSAgent:
-    """Validate one provider response into the loop's AgentDecision contract."""
+    """把一次 Provider 响应校验并转换为 Loop 的 AgentDecision 契约。"""
 
     name = "llm"
 
@@ -47,6 +47,7 @@ class MaaSAgent:
         self.last_usage: dict[str, int] | None = None
 
     def next_action(self, context: AgentContext) -> AgentDecision:
+        # Provider 只负责协议翻译；决策语义仍在本地统一校验，不能信任模型输出。
         response = self.provider.complete(
             instructions=ADAPTER_INSTRUCTIONS,
             prompt=context.prompt,
@@ -58,6 +59,7 @@ class MaaSAgent:
         payload = json.loads(response.output_text)
         if not isinstance(payload, dict):
             raise ValueError("model decision must be a JSON object")
+        # 参数在模型协议中是 JSON 字符串，解析后必须仍是对象才能交给工具层。
         encoded_arguments = payload.get("arguments")
         if not isinstance(encoded_arguments, str):
             raise ValueError("model arguments must be a JSON-encoded object string")

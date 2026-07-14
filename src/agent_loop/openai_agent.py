@@ -1,4 +1,4 @@
-"""Compatibility wrapper for the provider-based OpenAI Agent."""
+"""基于 Provider 的 OpenAI Agent 兼容层。"""
 
 from __future__ import annotations
 
@@ -9,7 +9,7 @@ from .providers.openai import OpenAIResponsesProvider
 
 
 class OpenAIResponsesAgent(MaaSAgent):
-    """Preserve the v0 public constructor while delegating to a Provider."""
+    """保留 v0 的公开构造方式，内部实现委托给 OpenAI Provider。"""
 
     def __init__(
         self,

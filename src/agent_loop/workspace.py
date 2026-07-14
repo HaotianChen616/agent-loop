@@ -1,4 +1,4 @@
-"""Run-local workspace creation and path confinement."""
+"""创建 Run 独享的 Workspace，并把所有文件访问限制在其中。"""
 
 from __future__ import annotations
 
@@ -12,6 +12,8 @@ from .types import PathViolation, WorkspaceSpec
 
 @dataclass(frozen=True)
 class Workspace:
+    """Agent 的隔离工作目录及其只读路径集合。"""
+
     root: Path
     read_only: frozenset[Path]
 
@@ -44,8 +46,8 @@ class Workspace:
         relative = self._relative_path(value)
         candidate = self.root / relative
 
-        # resolve(strict=False) follows any existing symlink in the prefix.  The
-        # containment check therefore rejects both ../ and symlink escapes.
+        # resolve(strict=False) 会解析路径前缀中已经存在的符号链接；随后再做
+        # 包含关系检查，能够同时拒绝 `../` 和借助符号链接逃出 Workspace。
         resolved = candidate.resolve(strict=False)
         if not resolved.is_relative_to(self.root):
             raise PathViolation(f"path escapes workspace: {value}")
@@ -81,12 +83,12 @@ class Workspace:
         return len(content.encode("utf-8"))
 
     def digest(self) -> str:
-        """Hash path names and content so approvals can bind to workspace state."""
+        """哈希文件名和内容，使审批与验证能够绑定到具体 Workspace 状态。"""
 
         digest = hashlib.sha256()
         for name in self.list_files(limit=100_000):
-            # Check the unresolved directory entry.  Checking only the resolved
-            # path would miss symlinks whose target is still inside the workspace.
+            # 必须检查尚未解析的目录项。若只检查解析后的路径，会漏掉目标仍在
+            # Workspace 内部的符号链接，进而让快照身份产生歧义。
             if (self.root / name).is_symlink():
                 raise PathViolation(f"cannot digest symlink: {name}")
             path = self.resolve(name)
