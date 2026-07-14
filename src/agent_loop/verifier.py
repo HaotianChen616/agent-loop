@@ -22,11 +22,19 @@ class PythonScriptVerifier:
     """运行可信 Scenario 检查，但不把 Agent 的可变 Workspace 直接交给它。"""
 
     def __init__(self, spec: RunSpec, workspace: Workspace, store: StateStore) -> None:
+        """绑定验收定义、待检查 Workspace 和证据持久层。"""
+
         self.spec = spec
         self.workspace = workspace
         self.store = store
 
     def verify(self, run_id: str) -> VerificationReport:
+        """在临时快照中运行验证脚本并返回规范化报告。
+
+        每次调用都生成独立 verification_id。无论成功、失败、协议错误或超时，原始
+        stdout/stderr/exit_code 都先写入 artifacts，确保结论可以追溯。
+        """
+
         started = time.monotonic()
         verification_id = uuid.uuid4().hex
         run_dir = self.store.run_dir(run_id)
@@ -58,6 +66,8 @@ class PythonScriptVerifier:
 
     @staticmethod
     def _environment(temporary: Path, snapshot: Path) -> dict[str, str]:
+        """构造最小子进程环境，只暴露快照位置和平台启动变量。"""
+
         # 只保留启动子进程所需的平台变量；凭证和业务环境变量不得穿过验证边界。
         environment = {
             "PYTHONUTF8": "1",
@@ -77,6 +87,12 @@ class PythonScriptVerifier:
         refs: tuple[str, ...],
         started: float,
     ) -> VerificationReport:
+        """校验 JSON 协议、criterion 集合和退出码，并计算整体结论。
+
+        stdout 不是任意日志，而是 Verifier 与 Loop 的正式协议；格式、结果集合或
+        退出码有任一不一致，都降级为 inconclusive 并要求人工复核。
+        """
+
         if len(stdout) > 1_000_000:
             return self._inconclusive("verification output exceeded limit", refs, started)
         try:
@@ -121,6 +137,8 @@ class PythonScriptVerifier:
         )
 
     def _criterion_results(self, payload: Any) -> tuple[CriterionResult, ...]:
+        """把不可信 JSON 转为 CriterionResult，并要求 ID 与 Scenario 精确相等。"""
+
         if not isinstance(payload, dict) or payload.get("schema_version") != 1:
             raise ValueError("schema_version must be 1")
         raw_results = payload.get("results")
@@ -150,6 +168,8 @@ class PythonScriptVerifier:
     def _write_evidence(
         self, run_id: str, verification_id: str, stdout: str, stderr: str, exit_code: str
     ) -> tuple[str, ...]:
+        """有界保存原始验证输出，并返回 events.jsonl 可引用的相对路径。"""
+
         base = f"verification/{verification_id}"
         return (
             self.store.write_artifact(run_id, f"{base}/stdout.txt", stdout[:1_000_000]),
@@ -161,6 +181,8 @@ class PythonScriptVerifier:
     def _inconclusive(
         feedback: str, refs: tuple[str, ...], started: float
     ) -> VerificationReport:
+        """构造不可自动重试的 inconclusive 报告，避免协议故障形成空转。"""
+
         return VerificationReport(
             Verdict.INCONCLUSIVE,
             (),

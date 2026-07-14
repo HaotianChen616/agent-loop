@@ -58,12 +58,19 @@ class Tool(Protocol):
     risk: RiskLevel
     mutates_workspace: bool
 
-    def run(self, arguments: Mapping[str, Any], workspace: Workspace) -> tuple[str, Any, bool]: ...
+    def run(
+        self, arguments: Mapping[str, Any], workspace: Workspace
+    ) -> tuple[str, Any, bool]:
+        """执行已授权参数，返回摘要、结构化输出和输出是否截断。"""
+
+        ...
 
 
 def _validate_arguments(
     arguments: Mapping[str, Any], required: set[str], optional: set[str] | None = None
 ) -> None:
+    """执行封闭参数校验：必填项不能缺失，Schema 外字段不能透传。"""
+
     optional = optional or set()
     missing = required - set(arguments)
     unknown = set(arguments) - required - optional
@@ -73,11 +80,15 @@ def _validate_arguments(
 
 @dataclass(frozen=True)
 class ListFilesTool:
+    """只读列出 Workspace 文件名，并通过 limit 限制观察规模。"""
+
     name: str = "list_files"
     risk: RiskLevel = RiskLevel.READ
     mutates_workspace: bool = False
 
     def run(self, arguments: Mapping[str, Any], workspace: Workspace) -> tuple[str, Any, bool]:
+        """验证 limit 后返回稳定排序的相对路径列表。"""
+
         _validate_arguments(arguments, set(), {"limit"})
         limit = arguments.get("limit", 200)
         if not isinstance(limit, int) or isinstance(limit, bool) or not 1 <= limit <= 1_000:
@@ -88,12 +99,16 @@ class ListFilesTool:
 
 @dataclass(frozen=True)
 class ReadFileTool:
+    """读取 UTF-8 文本；结果可截断，但源文件读取本身仍有硬上限。"""
+
     max_output_chars: int
     name: str = "read_file"
     risk: RiskLevel = RiskLevel.READ
     mutates_workspace: bool = False
 
     def run(self, arguments: Mapping[str, Any], workspace: Workspace) -> tuple[str, Any, bool]:
+        """读取单个相对路径，并显式标记输出是否因上下文预算被截断。"""
+
         _validate_arguments(arguments, {"path"})
         path = arguments["path"]
         if not isinstance(path, str):
@@ -106,11 +121,15 @@ class ReadFileTool:
 
 @dataclass(frozen=True)
 class WriteFileTool:
+    """替换 Workspace 内文本文件；所有路径和只读约束由 Workspace 再校验。"""
+
     name: str = "write_file"
     risk: RiskLevel = RiskLevel.LOCAL_WRITE
     mutates_workspace: bool = True
 
     def run(self, arguments: Mapping[str, Any], workspace: Workspace) -> tuple[str, Any, bool]:
+        """写入完整文本，并返回实际 UTF-8 字节数而不是字符数。"""
+
         _validate_arguments(arguments, {"path", "content"})
         path, content = arguments["path"], arguments["content"]
         if not isinstance(path, str) or not isinstance(content, str):
@@ -128,6 +147,8 @@ class MockExternalWriteTool:
     mutates_workspace: bool = False
 
     def run(self, arguments: Mapping[str, Any], workspace: Workspace) -> tuple[str, Any, bool]:
+        """校验审批示例参数，但刻意不连接任何真实外部服务。"""
+
         del workspace
         _validate_arguments(arguments, {"message"})
         if not isinstance(arguments["message"], str):
@@ -139,6 +160,8 @@ class ToolRegistry:
     """持有可信工具实现，并把不可信参数转换为结构化 ToolResult。"""
 
     def __init__(self, workspace: Workspace, max_output_chars: int = 8_000) -> None:
+        """创建固定工具集合，并把所有工具绑定到同一个 Run Workspace。"""
+
         self.workspace = workspace
         tools: tuple[Tool, ...] = (
             ListFilesTool(),
@@ -149,12 +172,16 @@ class ToolRegistry:
         self._tools = {tool.name: tool for tool in tools}
 
     def get(self, name: str) -> Tool:
+        """按稳定名称获取可信工具实现；未知工具立即失败。"""
+
         try:
             return self._tools[name]
         except KeyError as exc:
             raise ValueError(f"unknown tool: {name}") from exc
 
     def definitions(self, allowed: tuple[str, ...]) -> tuple[dict[str, Any], ...]:
+        """生成暴露给 Agent 的工具 Schema，仅包含 Scenario 白名单项。"""
+
         definitions = []
         for name in allowed:
             tool = self.get(name)
@@ -169,6 +196,12 @@ class ToolRegistry:
         return tuple(definitions)
 
     def execute(self, action_id: str, name: str, arguments: Mapping[str, Any]) -> ToolResult:
+        """执行工具并把预期异常收敛为 ToolResult。
+
+        工具异常属于 Loop 可观察反馈，不直接穿透主循环；编程错误不在捕获列表内，
+        仍会快速暴露。`action_id` 由 Engine 生成，用于关联授权与审计事件。
+        """
+
         started = time.monotonic()
         try:
             tool = self.get(name)

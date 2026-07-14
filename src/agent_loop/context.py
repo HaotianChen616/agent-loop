@@ -32,10 +32,18 @@ class ContextBuilder:
     """从 Scenario、最近证据和剩余预算组装单轮上下文。"""
 
     def __init__(self, spec: RunSpec, tools: ToolRegistry) -> None:
+        """绑定不可变 Scenario 与当前 Run 使用的工具注册表。"""
+
         self.spec = spec
         self.tools = tools
 
     def build(self, state: RunState) -> AgentContext:
+        """根据最新 RunState 构造一轮完整上下文。
+
+        上下文包含控制规则、目标、验收标准、最近工具与验证证据、剩余预算、
+        工具 Schema 和 Skills。若超过字符上限，只截断末尾 Skills，保留控制信息。
+        """
+
         skills, digests = self._load_skills()
         limits, usage = self.spec.budget, state.budget_usage
         remaining = {
@@ -83,6 +91,8 @@ class ContextBuilder:
         )
 
     def _load_skills(self) -> tuple[list[str], dict[str, str]]:
+        """读取 Scenario 声明的 Skills，并返回文本及逐文件 SHA-256。"""
+
         texts, digests = [], {}
         root = Path(self.spec.scenario_root)
         for name in self.spec.instructions:

@@ -22,6 +22,8 @@ from .types import (
 
 
 def _table(data: Mapping[str, Any], key: str) -> Mapping[str, Any]:
+    """读取一个 TOML table；缺省时返回空表，类型错误立即失败。"""
+
     value = data.get(key, {})
     if not isinstance(value, Mapping):
         raise ConfigError(f"{key} must be a TOML table")
@@ -29,6 +31,8 @@ def _table(data: Mapping[str, Any], key: str) -> Mapping[str, Any]:
 
 
 def _strings(data: Mapping[str, Any], key: str, *, required: bool = False) -> tuple[str, ...]:
+    """读取非空字符串列表，并转换为不可变 tuple。"""
+
     value = data.get(key)
     if value is None and not required:
         return ()
@@ -38,6 +42,8 @@ def _strings(data: Mapping[str, Any], key: str, *, required: bool = False) -> tu
 
 
 def _text(data: Mapping[str, Any], key: str) -> str:
+    """读取必填非空文本，并去掉首尾空白。"""
+
     value = data.get(key)
     if not isinstance(value, str) or not value.strip():
         raise ConfigError(f"{key} must be a non-empty string")
@@ -45,6 +51,8 @@ def _text(data: Mapping[str, Any], key: str) -> str:
 
 
 def _positive(data: Mapping[str, Any], key: str, default: int) -> int:
+    """读取正整数预算；显式拒绝 bool，因为 bool 是 Python 的 int 子类。"""
+
     value = data.get(key, default)
     if not isinstance(value, int) or isinstance(value, bool) or value <= 0:
         raise ConfigError(f"{key} must be a positive integer")
@@ -52,6 +60,8 @@ def _positive(data: Mapping[str, Any], key: str, default: int) -> int:
 
 
 def _risk_levels(data: Mapping[str, Any], key: str, default: tuple[RiskLevel, ...]) -> tuple[RiskLevel, ...]:
+    """把字符串风险列表转换为 RiskLevel，未知枚举值属于配置错误。"""
+
     raw = data.get(key)
     if raw is None:
         return default
@@ -62,6 +72,8 @@ def _risk_levels(data: Mapping[str, Any], key: str, default: tuple[RiskLevel, ..
 
 
 def _scenario_path(root: Path, value: str, label: str, *, directory: bool = False) -> Path:
+    """解析 Scenario 内路径，并拒绝绝对路径、`..`、不存在项和目录逃逸。"""
+
     relative = Path(value)
     if relative.is_absolute() or ".." in relative.parts:
         raise ConfigError(f"{label} must stay inside the scenario directory")
@@ -73,7 +85,11 @@ def _scenario_path(root: Path, value: str, label: str, *, directory: bool = Fals
 
 
 def _scenario_digest(root: Path) -> str:
-    """将 Run 绑定到 Scenario 控制目录中的全部稳定文件。"""
+    """将 Run 绑定到 Scenario 控制目录中的全部稳定文件。
+
+    摘要同时覆盖相对文件名与内容；忽略 Python 缓存，因为它们不是 Scenario 定义。
+    任意符号链接都会被拒绝，避免摘要跟随宿主机上可变的外部目标。
+    """
 
     files: set[Path] = set()
     for entry in root.rglob("*"):
@@ -95,7 +111,11 @@ def _scenario_digest(root: Path) -> str:
 
 
 def load_run_spec(path: str | Path) -> RunSpec:
-    """读取 Scenario，并冻结解析后的路径与内容摘要。"""
+    """读取 Scenario，并冻结解析后的路径与内容摘要。
+
+    该函数是配置进入运行时的唯一入口：它验证 Schema、验收标准、Workspace、
+    Verifier、Policy、Agent、Provider、工具白名单和预算，最终返回不可变 RunSpec。
+    """
 
     scenario_file = Path(path).expanduser().resolve()
     if not scenario_file.is_file():

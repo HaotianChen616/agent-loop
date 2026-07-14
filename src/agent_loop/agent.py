@@ -15,7 +15,10 @@ class AgentAdapter(Protocol):
 
     name: str
 
-    def next_action(self, context: AgentContext) -> AgentDecision: ...
+    def next_action(self, context: AgentContext) -> AgentDecision:
+        """根据当前事实包提出且只提出一个动作，不直接执行任何副作用。"""
+
+        ...
 
 
 class ScriptedAgent:
@@ -24,17 +27,23 @@ class ScriptedAgent:
     name = "scripted"
 
     def __init__(self, decisions: Sequence[AgentDecision]) -> None:
+        """冻结动作序列，并把游标初始化到第一个尚未返回的动作。"""
+
         self._decisions = tuple(decisions)
         self._index = 0
 
     @classmethod
     def from_file(cls, path: str | Path) -> "ScriptedAgent":
+        """从 JSON 数组加载动作，并复用 AgentDecision 做严格校验。"""
+
         payload = json.loads(Path(path).read_text(encoding="utf-8"))
         if not isinstance(payload, list):
             raise ValueError("scripted agent file must contain a JSON list")
         return cls([AgentDecision.from_mapping(item) for item in payload])
 
     def next_action(self, context: AgentContext) -> AgentDecision:
+        """返回下一个预设动作；脚本耗尽时给出 blocked 提议而不是抛异常。"""
+
         # 教学脚本刻意不根据上下文临场决策；真实反馈仍由 Loop 完整构造和记录。
         del context
         if self._index >= len(self._decisions):
@@ -54,4 +63,6 @@ class ScriptedAgent:
 
     @property
     def calls(self) -> int:
+        """返回已消费的脚本动作数，主要供测试和教学观察。"""
+
         return self._index

@@ -29,6 +29,12 @@ class ApplyError(AgentLoopError):
 
 
 class RunStatus(str, Enum):
+    """Run 的生命周期状态。
+
+    `created/running/verifying/needs_review` 表示仍可继续推进；其余状态为终态。
+    状态之间不能任意跳转，合法迁移由 `engine.ALLOWED_TRANSITIONS` 集中定义。
+    """
+
     CREATED = "created"
     RUNNING = "running"
     VERIFYING = "verifying"
@@ -41,6 +47,8 @@ class RunStatus(str, Enum):
 
     @property
     def is_terminal(self) -> bool:
+        """返回当前状态是否已经结束，不再允许 Loop 自动推进。"""
+
         return self in {
             self.COMPLETED,
             self.BLOCKED,
@@ -51,18 +59,24 @@ class RunStatus(str, Enum):
 
 
 class Verdict(str, Enum):
+    """Verifier 对单项标准或整体验证给出的三态结论。"""
+
     PASS = "pass"
     FAIL = "fail"
     INCONCLUSIVE = "inconclusive"
 
 
 class DecisionKind(str, Enum):
+    """Agent 每轮唯一允许返回的决策类型。"""
+
     TOOL_CALL = "tool_call"
     REQUEST_VERIFICATION = "request_verification"
     BLOCKED = "blocked"
 
 
 class RiskLevel(str, Enum):
+    """工具副作用风险，PolicyEngine 根据它决定授权方式。"""
+
     READ = "read"
     LOCAL_WRITE = "local_write"
     EXTERNAL_WRITE = "external_write"
@@ -70,6 +84,8 @@ class RiskLevel(str, Enum):
 
 
 class ToolStatus(str, Enum):
+    """一次工具尝试的结果；它描述执行事实，不代表 Run 已完成。"""
+
     SUCCESS = "success"
     ERROR = "error"
     DENIED = "denied"
@@ -78,6 +94,8 @@ class ToolStatus(str, Enum):
 
 @dataclass(frozen=True)
 class ContextSpec:
+    """上下文与工具输出的大小上限，防止历史和观察结果无限膨胀。"""
+
     max_input_chars: int = 30_000
     max_history_items: int = 8
     max_tool_output_chars: int = 8_000
@@ -85,6 +103,8 @@ class ContextSpec:
 
 @dataclass(frozen=True)
 class WorkspaceSpec:
+    """Workspace 种子目录、复制模式和不可写的相对路径。"""
+
     seed: str
     mode: str = "copy"
     read_only: tuple[str, ...] = ()
@@ -92,6 +112,8 @@ class WorkspaceSpec:
 
 @dataclass(frozen=True)
 class AgentSpec:
+    """Agent 类型及真实模型调用所需的 Provider、模型和请求边界。"""
+
     kind: str = "scripted"
     request_timeout_seconds: int = 30
     max_output_tokens: int = 1_000
@@ -102,6 +124,8 @@ class AgentSpec:
 
 @dataclass(frozen=True)
 class VerificationSpec:
+    """可信验证脚本及其独立进程超时时间。"""
+
     script: str
     kind: str = "python_script"
     timeout_seconds: int = 10
@@ -109,6 +133,8 @@ class VerificationSpec:
 
 @dataclass(frozen=True)
 class BudgetLimits:
+    """单个 Run 的硬预算；每个维度都由 LoopEngine 在副作用前检查。"""
+
     max_iterations: int = 6
     max_agent_calls: int = 6
     max_tool_calls: int = 10
@@ -119,6 +145,8 @@ class BudgetLimits:
 
 @dataclass
 class BudgetUsage:
+    """当前 Run 已消费的预算计数，随 state.json 一起持久化。"""
+
     iterations: int = 0
     agent_calls: int = 0
     tool_calls: int = 0
@@ -127,6 +155,8 @@ class BudgetUsage:
 
 @dataclass(frozen=True)
 class PolicySpec:
+    """三组互斥的风险策略：自动允许、需要审批和始终拒绝。"""
+
     auto_allow: tuple[RiskLevel, ...] = (
         RiskLevel.READ,
         RiskLevel.LOCAL_WRITE,
@@ -137,6 +167,12 @@ class PolicySpec:
 
 @dataclass(frozen=True)
 class RunSpec:
+    """从 Scenario 校验后冻结的完整运行定义。
+
+    路径都已解析为绝对路径，`digest` 绑定 Scenario 控制目录内容。运行期间只依赖
+    该对象，不再信任原始 TOML 中未校验的值。
+    """
+
     schema_version: int
     scenario_id: str
     title: str
@@ -158,6 +194,12 @@ class RunSpec:
 
 @dataclass(frozen=True)
 class AgentDecision:
+    """Agent 的单轮提议。
+
+    tool_call 携带工具与参数；request_verification 和 blocked 不得夹带工具调用。
+    该对象只表达意图，是否授权和执行仍由 LoopEngine 决定。
+    """
+
     kind: DecisionKind
     summary: str
     tool: str | None = None
@@ -203,11 +245,15 @@ class AgentDecision:
         return cls(kind, summary, tool, dict(arguments), reason)
 
     def to_dict(self) -> dict[str, Any]:
+        """转换为稳定的 JSON 形态，供状态、事件和审批记录持久化。"""
+
         return {**asdict(self), "kind": self.kind.value}
 
 
 @dataclass(frozen=True)
 class ToolResult:
+    """工具执行的结构化事实，包含动作标识、输出、错误和截断信息。"""
+
     action_id: str
     tool_name: str
     status: ToolStatus
@@ -221,6 +267,8 @@ class ToolResult:
 
 @dataclass(frozen=True)
 class CriterionResult:
+    """Verifier 对一个 acceptance criterion 的独立判断。"""
+
     criterion_id: str
     verdict: Verdict
     message: str
@@ -229,6 +277,8 @@ class CriterionResult:
 
 @dataclass(frozen=True)
 class VerificationReport:
+    """一次完整验证的结果、反馈、证据引用和重复失败指纹。"""
+
     verdict: Verdict
     criteria_results: tuple[CriterionResult, ...]
     feedback: str
@@ -240,16 +290,26 @@ class VerificationReport:
 
 @dataclass(frozen=True)
 class StopDecision:
+    """StopPolicy 的纯函数结果；`status=None` 表示允许继续。"""
+
     status: RunStatus | None
     reason: str
 
     @property
     def should_stop(self) -> bool:
+        """是否要求 LoopEngine 迁移到一个停止或人工复核状态。"""
+
         return self.status is not None
 
 
 @dataclass
 class RunState:
+    """可恢复的 Run 当前事实快照。
+
+    `last_*` 保存最近证据，`pending_approval/in_flight_action` 防止恢复时重复副作用，
+    `revision/event_sequence` 用于协调 state.json 与 events.jsonl。
+    """
+
     schema_version: int
     run_id: str
     scenario_id: str
@@ -274,11 +334,15 @@ class RunState:
 
     @property
     def is_terminal(self) -> bool:
+        """代理给 RunStatus，便于主循环直接判断是否退出。"""
+
         return self.status.is_terminal
 
 
 @dataclass(frozen=True)
 class LoopEvent:
+    """一条追加式审计事件，只保存摘要和证据引用，不复制完整状态。"""
+
     event_id: str
     sequence: int
     state_revision: int
