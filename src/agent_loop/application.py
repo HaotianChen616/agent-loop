@@ -24,6 +24,8 @@ _FILE_FLAGS = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0)
 
 @dataclass(frozen=True)
 class ApplyChange:
+    """预览中的单文件变化，before/after 摘要用于发现确认期间的并发修改。"""
+
     path: str
     operation: str
     before_sha256: str | None
@@ -33,6 +35,8 @@ class ApplyChange:
 
 @dataclass(frozen=True)
 class ApplyPreview:
+    """提交给人工确认的完整发布计划，绑定 Run、目标目录和双方摘要。"""
+
     application_id: str
     run_id: str
     target_dir: str
@@ -42,16 +46,24 @@ class ApplyPreview:
 
 
 def _hash_bytes(content: bytes) -> str:
+    """计算文件内容 SHA-256，统一用于预览比较和写入前复核。"""
+
     return hashlib.sha256(content).hexdigest()
 
 
 def _require_safe_open_support() -> None:
+    """要求 POSIX 的目录与防跟随标志；平台不支持时宁可拒绝 Apply。"""
+
     if not getattr(os, "O_NOFOLLOW", 0) or not getattr(os, "O_DIRECTORY", 0):
         raise ApplyError("safe apply requires POSIX O_NOFOLLOW and O_DIRECTORY support")
 
 
 def _read_regular_fd(file_fd: int, label: str) -> bytes:
-    """读取已经打开的普通文件，并拒绝读取期间发生的 inode 变化。"""
+    """读取已经打开的普通文件，并拒绝读取期间发生的 inode 变化。
+
+    读取前后比较设备、inode、大小和 mtime；任一变化都说明内容可能不是同一稳定
+    文件。函数始终负责关闭传入 FD，调用者不能再次使用它。
+    """
 
     try:
         before = os.fstat(file_fd)
@@ -89,7 +101,11 @@ def _read_regular_fd(file_fd: int, label: str) -> bytes:
 
 
 def _scan_workspace(root: Path) -> tuple[str, dict[str, bytes]]:
-    """通过目录文件描述符有界读取 Workspace，全程不跟随符号链接。"""
+    """通过目录文件描述符有界读取 Workspace，全程不跟随符号链接。
+
+    同时限制文件数、单文件大小与总字节数。返回摘要和已读取字节，后续 Apply 可以
+    基于同一份扫描结果制作预览，不再通过易受竞态影响的字符串路径重复读取。
+    """
 
     _require_safe_open_support()
     files: dict[str, bytes] = {}
@@ -140,6 +156,12 @@ def _scan_workspace(root: Path) -> tuple[str, dict[str, bytes]]:
 def _safe_target_root(
     target_dir: str | Path, run_dir: Path
 ) -> tuple[Path, tuple[int, int]]:
+    """校验目标根目录并记录设备/inode 身份。
+
+    目标必须预先存在、不能是符号链接，也不能位于 Run 目录内部，避免把发布结果
+    覆盖到状态、证据或 Workspace 自身。
+    """
+
     raw = Path(target_dir).expanduser()
     if raw.is_symlink():
         raise ApplyError("target directory cannot be a symbolic link")
@@ -156,6 +178,8 @@ def _safe_target_root(
 
 
 def _validate_target_name(root: Path, name: str, protected: Path) -> tuple[str, ...]:
+    """校验一个发布相对路径，并阻止它覆盖受保护的 Runs 根目录。"""
+
     relative = Path(name)
     if relative.is_absolute() or not relative.parts or ".." in relative.parts:
         raise ApplyError(f"invalid target path: {name}")
@@ -168,7 +192,11 @@ def _validate_target_name(root: Path, name: str, protected: Path) -> tuple[str, 
 def _open_parent(
     root_fd: int, parts: tuple[str, ...], *, create: bool
 ) -> tuple[int, str] | None:
-    """相对可信目录 FD 逐层打开父目录，并拒绝任意层级的符号链接。"""
+    """相对可信目录 FD 逐层打开父目录，并拒绝任意层级的符号链接。
+
+    `create=True` 时可以创建缺失目录，但创建后仍会以 O_NOFOLLOW 重新打开，防止
+    另一个进程在检查与使用之间把目录替换成符号链接。
+    """
 
     parent_fd = os.dup(root_fd)
     try:
@@ -198,6 +226,8 @@ def _open_parent(
 
 
 def _read_target(root_fd: int, parts: tuple[str, ...], label: str) -> bytes | None:
+    """相对目标根 FD 安全读取现有文件；文件不存在返回 None。"""
+
     opened = _open_parent(root_fd, parts, create=False)
     if opened is None:
         return None
@@ -221,6 +251,12 @@ def _write_target(
     content: bytes,
     application_id: str,
 ) -> None:
+    """在目标父目录内写临时文件并原子替换最终文件。
+
+    写入前再次比较现有内容与 preview.before_sha256，发现目标被并发修改就停止。
+    临时文件使用 O_EXCL 创建，写入后 flush + fsync，再通过目录 FD 执行 replace。
+    """
+
     opened = _open_parent(root_fd, parts, create=True)
     assert opened is not None
     parent_fd, leaf = opened
@@ -261,6 +297,12 @@ def _build_preview(
     workspace_digest: str,
     files: dict[str, bytes],
 ) -> ApplyPreview:
+    """比较冻结的 Workspace 字节与当前目标，生成逐文件变化和目标覆盖摘要。
+
+    v0 只添加或修改 Workspace 中存在的文件，不删除目标目录的额外文件。没有内容
+    变化的文件不会出现在 changes 中。
+    """
+
     changes: list[ApplyChange] = []
     overlay = hashlib.sha256()
     for name, content in sorted(files.items()):
@@ -294,6 +336,8 @@ def _build_preview(
 
 
 def _record(preview: ApplyPreview, created_at: str, status: str, **extra) -> dict:
+    """把同一 Preview 扩展为 prepared/declined/applying/applied/failed 审计记录。"""
+
     return {
         "schema_version": 1,
         **asdict(preview),
@@ -309,7 +353,12 @@ def apply_run(
     target_dir: str | Path,
     confirm: Callable[[ApplyPreview], bool],
 ) -> dict:
-    """先预览、再确认和复核，最后原子替换目标文件。"""
+    """先预览、再确认和复核，最后原子替换目标文件。
+
+    发布阶段依次为：校验 completed 证据 → 扫描并绑定 Workspace → 打开并绑定目标
+    根目录 → 写 prepared 记录 → 人工确认 → 二次扫描双方 → 冻结字节 → 逐文件原子
+    写入 → 写最终审计。prepared 记录落盘后的失败都会留下结果，且不会改变 Run 终态。
+    """
 
     # completed 只是发布的必要条件；仍需验证证据和 Workspace 摘要共同证明结果未变。
     state = store.load(run_id)
@@ -338,6 +387,7 @@ def apply_run(
     application_id = uuid.uuid4().hex
     created_at = utc_now()
     try:
+        # prepared 记录先于人工确认落盘，即使用户退出也能解释这次 Apply 尝试。
         preview = _build_preview(
             application_id,
             run_id,
@@ -393,6 +443,7 @@ def apply_run(
             if _scan_workspace(workspace_root)[0] != workspace_digest:
                 raise ApplyError("workspace changed while preparing the application")
 
+            # 先落 applying，再在内存中逐文件累积 applied_paths；异常记录会写出已影响范围。
             applied: list[str] = []
             store.write_application(
                 run_id,

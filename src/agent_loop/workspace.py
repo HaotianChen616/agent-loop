@@ -19,6 +19,12 @@ class Workspace:
 
     @classmethod
     def create(cls, spec: WorkspaceSpec, destination: str | Path) -> "Workspace":
+        """从只读种子复制一个新的 Run Workspace。
+
+        destination 必须不存在，避免覆盖旧 Run；复制时保留符号链接本身，后续访问和
+        digest 会显式拒绝不安全链接，而不是在复制阶段偷偷跟随它。
+        """
+
         root = Path(destination).resolve()
         if root.exists():
             raise PathViolation(f"workspace already exists: {root}")
@@ -29,6 +35,8 @@ class Workspace:
 
     @classmethod
     def open(cls, spec: WorkspaceSpec, root: str | Path) -> "Workspace":
+        """重新打开已存在的 Workspace，用于 resume，不复制任何内容。"""
+
         resolved = Path(root).resolve()
         if not resolved.is_dir():
             raise PathViolation(f"workspace does not exist: {resolved}")
@@ -37,12 +45,20 @@ class Workspace:
 
     @staticmethod
     def _relative_path(value: str | Path) -> Path:
+        """把输入规范为受限相对路径，并拒绝空路径、绝对路径和 `..`。"""
+
         path = Path(value)
         if path.is_absolute() or ".." in path.parts or path in {Path(""), Path(".")}:
             raise PathViolation(f"path must be relative and confined: {value}")
         return path
 
     def resolve(self, value: str | Path, *, for_write: bool = False) -> Path:
+        """将相对路径安全解析到 Workspace 内部。
+
+        `for_write=True` 时额外检查只读路径及其子项。返回值仅说明路径位置安全，
+        具体文件类型和是否存在仍由调用方法校验。
+        """
+
         relative = self._relative_path(value)
         candidate = self.root / relative
 
@@ -57,6 +73,8 @@ class Workspace:
         return resolved
 
     def list_files(self, *, limit: int = 200) -> tuple[str, ...]:
+        """按路径排序列出文件和符号链接，达到 limit 后立即停止遍历结果收集。"""
+
         files: list[str] = []
         for path in sorted(self.root.rglob("*")):
             if path.is_file() or path.is_symlink():
@@ -66,6 +84,8 @@ class Workspace:
         return tuple(files)
 
     def read_text(self, value: str | Path, *, max_chars: int = 100_000) -> str:
+        """读取受限 UTF-8 文件，并在返回前执行字符数硬限制。"""
+
         path = self.resolve(value)
         if not path.is_file():
             raise FileNotFoundError(f"file does not exist: {value}")
@@ -75,6 +95,8 @@ class Workspace:
         return text
 
     def write_text(self, value: str | Path, content: str, *, max_chars: int = 100_000) -> int:
+        """写入有界 UTF-8 文本，必要时创建父目录，并返回实际字节数。"""
+
         if not isinstance(content, str) or len(content) > max_chars:
             raise PathViolation("write content must be bounded text")
         path = self.resolve(value, for_write=True)
@@ -99,6 +121,8 @@ class Workspace:
         return digest.hexdigest()
 
     def copy_snapshot(self, destination: str | Path) -> Path:
+        """复制当前 Workspace 供 Verifier 一次性使用；目标目录必须不存在。"""
+
         target = Path(destination).resolve()
         if target.exists():
             raise PathViolation(f"snapshot already exists: {target}")

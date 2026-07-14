@@ -15,6 +15,8 @@ from .types import BudgetUsage, LoopEvent, RunSpec, RunState, RunStatus
 
 
 def utc_now() -> str:
+    """返回带 UTC 时区的 ISO 8601 时间，供状态和事件统一使用。"""
+
     return datetime.now(UTC).isoformat()
 
 
@@ -40,10 +42,14 @@ class StateStore:
         root: str | Path = ".agent-loop/runs",
         event_listener: Callable[[LoopEvent], None] | None = None,
     ) -> None:
+        """绑定 Runs 根目录，并可选注册实时事件监听器。"""
+
         self.root = Path(root).resolve()
         self.event_listener = event_listener
 
     def run_dir(self, run_id: str) -> Path:
+        """验证稳定 run_id 格式并返回对应目录，防止借 ID 进行路径穿越。"""
+
         if not run_id or any(character not in "abcdefghijklmnopqrstuvwxyz0123456789-" for character in run_id):
             raise ValueError("run_id must contain lowercase letters, digits, and hyphens")
         return self.root / run_id
@@ -54,6 +60,12 @@ class StateStore:
         run_id: str | None = None,
         runtime: dict[str, Any] | None = None,
     ) -> RunState:
+        """初始化新 Run 的 manifest、state、events 和 artifacts 目录。
+
+        `runtime` 记录实际使用的 Agent/Provider/model，而不是只记录 Scenario 默认值；
+        这使命令行覆盖项也能在 resume 时被严格复核。
+        """
+
         run_id = run_id or uuid.uuid4().hex
         directory = self.run_dir(run_id)
         directory.mkdir(parents=True, exist_ok=False)
@@ -84,6 +96,8 @@ class StateStore:
         return state
 
     def load(self, run_id: str) -> RunState:
+        """从 state.json 恢复强类型 RunState，并拒绝未知字段。"""
+
         data = json.loads((self.run_dir(run_id) / "state.json").read_text(encoding="utf-8"))
         allowed = {item.name for item in fields(RunState)}
         unknown = set(data) - allowed
@@ -94,16 +108,24 @@ class StateStore:
         return RunState(**data)
 
     def load_manifest(self, run_id: str) -> dict[str, Any]:
+        """读取创建时冻结的 Scenario 与运行身份。"""
+
         return json.loads(
             (self.run_dir(run_id) / "manifest.json").read_text(encoding="utf-8")
         )
 
     def read_events(self, run_id: str) -> tuple[dict[str, Any], ...]:
+        """按追加顺序读取完整事件日志，主要供 inspect 和恢复检查使用。"""
+
         path = self.run_dir(run_id) / "events.jsonl"
         return tuple(json.loads(line) for line in path.read_text(encoding="utf-8").splitlines())
 
     def recover(self, run_id: str) -> RunState:
-        """协调事件尾部与状态快照，但绝不通过重放事件来重复副作用。"""
+        """协调事件尾部与状态快照，但绝不通过重放事件来重复副作用。
+
+        state 比事件领先时补记恢复事件；末尾半条 JSON 可安全截断；事件领先、
+        中部损坏或存在 in-flight 动作时进入 needs_review，把不确定性交给人处理。
+        """
 
         state = self.load(run_id)
         path = self.run_dir(run_id) / "events.jsonl"
@@ -161,7 +183,11 @@ class StateStore:
         duration_ms: int = 0,
         usage: dict[str, Any] | None = None,
     ) -> LoopEvent:
-        """先原子提交状态，再追加一条指向该 revision 的事件。"""
+        """先原子提交状态，再追加一条指向该 revision 的事件。
+
+        这种顺序保证崩溃时最多出现“state 领先一条事件”，不会出现事件宣称了尚未
+        持久化的状态。文件写入均 flush + fsync，随后才通知实时监听器。
+        """
 
         state.revision += 1
         state.event_sequence += 1
@@ -216,6 +242,8 @@ class StateStore:
 
     @staticmethod
     def _atomic_json(path: Path, value: Any) -> None:
+        """写临时文件、fsync 后使用 os.replace 原子替换正式 JSON。"""
+
         temporary = path.with_suffix(path.suffix + ".tmp")
         with temporary.open("w", encoding="utf-8") as handle:
             json.dump(value, handle, ensure_ascii=False, indent=2, sort_keys=True)
@@ -226,6 +254,8 @@ class StateStore:
 
     @staticmethod
     def _append_jsonl(path: Path, value: Any) -> None:
+        """追加一行完整 JSON 并 fsync；恢复逻辑可识别末尾半写记录。"""
+
         with path.open("a", encoding="utf-8") as handle:
             handle.write(json.dumps(value, ensure_ascii=False, sort_keys=True) + "\n")
             handle.flush()
