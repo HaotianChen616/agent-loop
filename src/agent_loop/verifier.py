@@ -1,4 +1,4 @@
-"""Deterministic verification on a disposable workspace snapshot."""
+"""在一次性 Workspace 快照上执行确定性验证。"""
 
 from __future__ import annotations
 
@@ -19,7 +19,7 @@ from .workspace import Workspace
 
 
 class PythonScriptVerifier:
-    """Run a trusted scenario check without granting it the Agent workspace."""
+    """运行可信 Scenario 检查，但不把 Agent 的可变 Workspace 直接交给它。"""
 
     def __init__(self, spec: RunSpec, workspace: Workspace, store: StateStore) -> None:
         self.spec = spec
@@ -32,6 +32,7 @@ class PythonScriptVerifier:
         run_dir = self.store.run_dir(run_id)
         with tempfile.TemporaryDirectory(prefix="verify-", dir=run_dir) as temporary:
             temporary_path = Path(temporary)
+            # 检查器只读取一次性副本，避免验证过程反向污染 Agent 工作区。
             snapshot = self.workspace.copy_snapshot(temporary_path / "workspace")
             environment = self._environment(temporary_path, snapshot)
             try:
@@ -57,8 +58,7 @@ class PythonScriptVerifier:
 
     @staticmethod
     def _environment(temporary: Path, snapshot: Path) -> dict[str, str]:
-        # Preserve only platform essentials; credentials and application env do
-        # not cross the verifier boundary.
+        # 只保留启动子进程所需的平台变量；凭证和业务环境变量不得穿过验证边界。
         environment = {
             "PYTHONUTF8": "1",
             "PYTHONDONTWRITEBYTECODE": "1",
@@ -85,6 +85,7 @@ class PythonScriptVerifier:
         except (json.JSONDecodeError, KeyError, TypeError, ValueError) as exc:
             return self._inconclusive(f"invalid verification protocol: {exc}", refs, started)
 
+        # 任一 inconclusive 都需要人工判断；否则任一 fail 即代表整体失败。
         verdicts = {result.verdict for result in results}
         overall = (
             Verdict.INCONCLUSIVE
@@ -141,6 +142,7 @@ class PythonScriptVerifier:
                 )
             )
         ids = [result.criterion_id for result in results]
+        # 验证器必须逐项回答 Scenario 声明的标准，不能漏项或自行增加标准。
         if len(ids) != len(set(ids)) or set(ids) != set(self.spec.acceptance_criteria):
             raise ValueError("criterion IDs must exactly match the scenario")
         return tuple(results)

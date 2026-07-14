@@ -1,4 +1,4 @@
-"""Zhipu GLM Coding Plan implementation of the MaaS boundary."""
+"""MaaS 边界的智谱 GLM Coding Plan 实现。"""
 
 from __future__ import annotations
 
@@ -13,7 +13,7 @@ ZHIPU_CODING_BASE_URL = "https://open.bigmodel.cn/api/coding/paas/v4"
 
 
 class ZhipuCodingPlanProvider:
-    """Call GLM Coding Plan through its OpenAI Chat Completions endpoint."""
+    """通过 OpenAI Chat Completions 兼容端点调用 GLM Coding Plan。"""
 
     name = "zhipu-coding-plan"
 
@@ -45,8 +45,8 @@ class ZhipuCodingPlanProvider:
                 from openai import OpenAI
             except ImportError as exc:
                 raise RuntimeError("install agent-loop[zhipu] to use the Zhipu provider") from exc
-            # The Coding endpoint implements OpenAI Chat Completions. Keeping
-            # SDK retries off makes failures visible to the bounded outer loop.
+            # Coding 端点兼容 OpenAI Chat Completions；关闭 SDK 重试，确保失败
+            # 对有预算限制的外层 Loop 可见。
             client = OpenAI(
                 api_key=key,
                 base_url=self.base_url,
@@ -77,6 +77,7 @@ class ZhipuCodingPlanProvider:
             stream=False,
             timeout=self.request_timeout_seconds,
         )
+        # 截断或空响应不能进入决策解析，否则可能执行一个不完整动作。
         choices = field_value(response, "choices", ()) or ()
         if not choices:
             raise ValueError("Zhipu returned no completion choices")

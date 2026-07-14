@@ -1,4 +1,4 @@
-"""The single lifecycle owner for an evidence-driven Agent loop."""
+"""证据驱动 Agent Loop 的唯一生命周期控制器。"""
 
 from __future__ import annotations
 
@@ -27,6 +27,7 @@ from .verifier import PythonScriptVerifier
 from .workspace import Workspace
 
 
+# 状态机采用白名单：任何未显式列出的迁移都视为编程错误。
 ALLOWED_TRANSITIONS: dict[RunStatus, set[RunStatus]] = {
     RunStatus.CREATED: {
         RunStatus.VERIFYING,
@@ -55,6 +56,8 @@ ALLOWED_TRANSITIONS: dict[RunStatus, set[RunStatus]] = {
 
 
 class LoopEngine:
+    """编排上下文、Agent、策略、工具、验证和持久化，但不替代各组件职责。"""
+
     def __init__(
         self,
         spec: RunSpec,
@@ -93,7 +96,7 @@ class LoopEngine:
         runtime = manifest.get("runtime")
         if runtime:
             expected_provider = runtime.get("provider")
-            # Manifests created before the provider boundary implicitly used OpenAI.
+            # Provider 抽象引入前的旧 manifest 中，llm 隐含表示 OpenAI。
             if expected_provider is None and runtime.get("agent") == "llm":
                 expected_provider = "openai"
             if (
@@ -147,7 +150,7 @@ class LoopEngine:
         approved_action: tuple[str, AgentDecision] | None = None,
     ) -> RunState:
         tools = ToolRegistry(workspace, self.spec.context.max_tool_output_chars)
-        # Validate configured tools before the first model call.
+        # 在第一次模型调用之前校验工具配置，避免先花费 Token 才发现配置错误。
         tools.definitions(self.spec.allowed_tools)
         context_builder = ContextBuilder(self.spec, tools)
         verifier = PythonScriptVerifier(self.spec, workspace, self.store)
@@ -155,6 +158,7 @@ class LoopEngine:
             0.0, deadline - self.clock()
         )
 
+        # 先验证再调用 Agent：如果初始 Workspace 已满足目标，可以零 Agent 调用完成。
         if not state.initial_verification_done and self._verify(
             state, workspace, verifier, deadline
         ):
@@ -167,6 +171,7 @@ class LoopEngine:
             if tool.mutates_workspace and self._verify(state, workspace, verifier, deadline):
                 return state
 
+        # needs_review 必须把控制权交还给人；其他非终态继续进入有预算的反馈循环。
         while not state.is_terminal and state.status is not RunStatus.NEEDS_REVIEW:
             budget = self.stop_policy.before_iteration(state, self.spec, elapsed())
             self._record_stop_decision(state, budget)
@@ -186,7 +191,8 @@ class LoopEngine:
             )
             try:
                 decision = self._validate_decision(self.agent.next_action(context))
-            except Exception as exc:  # Adapters convert provider failures into loop feedback.
+            except Exception as exc:
+                # Provider/适配器失败也会转成可见反馈，不能绕过预算进行内部无限重试。
                 self._agent_error(state, exc)
                 continue
 
@@ -211,6 +217,7 @@ class LoopEngine:
                 continue
             if self._execute_tool(state, workspace, tools, decision, deadline):
                 tool = tools.get(decision.tool or "")
+                # 只有成功修改 Workspace 的工具才自动触发验证；纯读取不浪费验证预算。
                 if tool.mutates_workspace and state.last_tool_result and (
                     state.last_tool_result["status"] == ToolStatus.SUCCESS.value
                 ):
@@ -226,6 +233,7 @@ class LoopEngine:
         decision: AgentDecision,
         deadline: float,
     ) -> bool:
+        # action_id 让一次提议、授权、执行和结果可以在事件日志中被关联起来。
         action_id = uuid.uuid4().hex
         if decision.tool not in self.spec.allowed_tools:
             result = ToolResult(
@@ -242,6 +250,7 @@ class LoopEngine:
         authorization = self.policy.authorize(tool.risk, self.spec)
         self.store.checkpoint(state, "authorization_decided", authorization.reason)
         if authorization.needs_approval:
+            # 审批绑定当前 Workspace 摘要；恢复时内容有变化就拒绝执行旧动作。
             state.pending_approval = {
                 "action_id": action_id,
                 "decision": decision.to_dict(),
@@ -274,6 +283,7 @@ class LoopEngine:
             return False
 
         state.budget_usage.tool_calls += 1
+        # 工具执行前先记录 in-flight；若进程崩溃，恢复逻辑会暂停而不是盲目重放。
         state.in_flight_action = {
             "action_id": action_id,
             "decision": decision.to_dict(),
@@ -350,6 +360,7 @@ class LoopEngine:
         report = verifier.verify(state.run_id)
         state.initial_verification_done = True
         digest = workspace.digest()
+        # 只有“失败指纹相同且 Workspace 摘要未变”才算重复失败。
         if report.verdict is Verdict.PASS:
             state.same_failure_count = 0
         elif (
@@ -436,6 +447,8 @@ class LoopEngine:
         reason: str,
         event_type: str = "state_transitioned",
     ) -> None:
+        """执行一次合法状态迁移，并立即持久化迁移原因。"""
+
         if target is None:
             return
         if target not in ALLOWED_TRANSITIONS.get(state.status, set()):

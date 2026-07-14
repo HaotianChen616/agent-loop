@@ -1,4 +1,4 @@
-"""Explicitly apply a verified workspace after a human gate."""
+"""通过显式人工关卡，将验证通过的 Workspace 发布到目标目录。"""
 
 from __future__ import annotations
 
@@ -51,7 +51,7 @@ def _require_safe_open_support() -> None:
 
 
 def _read_regular_fd(file_fd: int, label: str) -> bytes:
-    """Read one already-opened file and reject a concurrent inode mutation."""
+    """读取已经打开的普通文件，并拒绝读取期间发生的 inode 变化。"""
 
     try:
         before = os.fstat(file_fd)
@@ -89,7 +89,7 @@ def _read_regular_fd(file_fd: int, label: str) -> bytes:
 
 
 def _scan_workspace(root: Path) -> tuple[str, dict[str, bytes]]:
-    """Read a bounded workspace through directory FDs without following links."""
+    """通过目录文件描述符有界读取 Workspace，全程不跟随符号链接。"""
 
     _require_safe_open_support()
     files: dict[str, bytes] = {}
@@ -168,7 +168,7 @@ def _validate_target_name(root: Path, name: str, protected: Path) -> tuple[str, 
 def _open_parent(
     root_fd: int, parts: tuple[str, ...], *, create: bool
 ) -> tuple[int, str] | None:
-    """Open each parent relative to a trusted FD, rejecting every symlink."""
+    """相对可信目录 FD 逐层打开父目录，并拒绝任意层级的符号链接。"""
 
     parent_fd = os.dup(root_fd)
     try:
@@ -309,8 +309,9 @@ def apply_run(
     target_dir: str | Path,
     confirm: Callable[[ApplyPreview], bool],
 ) -> dict:
-    """Preview, confirm, revalidate, then atomically replace target files."""
+    """先预览、再确认和复核，最后原子替换目标文件。"""
 
+    # completed 只是发布的必要条件；仍需验证证据和 Workspace 摘要共同证明结果未变。
     state = store.load(run_id)
     manifest = store.load_manifest(run_id)
     if state.status is not RunStatus.COMPLETED:
@@ -352,6 +353,7 @@ def apply_run(
             _record(preview, created_at, "prepared", confirmed=False),
         )
 
+        # 确认回调是最终人工关卡；拒绝不会对目标目录产生任何写操作。
         if not confirm(preview):
             record = _record(
                 preview, created_at, "declined", confirmed=False, completed_at=utc_now()
@@ -370,6 +372,7 @@ def apply_run(
                     raise ApplyError("target directory changed during confirmation")
             finally:
                 os.close(current_fd)
+            # 用户确认期间 Workspace 或目标目录都可能变化，因此必须重新扫描并比较。
             second_digest, second_files = _scan_workspace(workspace_root)
             second_preview = _build_preview(
                 application_id,
@@ -383,7 +386,7 @@ def apply_run(
             if second_digest != workspace_digest or second_preview != preview:
                 raise ApplyError("workspace or target changed during confirmation")
 
-            # Freeze the verified bytes before the first target-side effect.
+            # 在第一次目标侧副作用之前冻结已验证字节，后续只写这一份确定内容。
             frozen = {
                 change.path: second_files[change.path] for change in second_preview.changes
             }

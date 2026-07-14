@@ -1,7 +1,7 @@
-"""Stable data contracts shared by the loop components.
+"""Loop 各组件共享的稳定数据契约。
 
-The control loop intentionally exchanges plain, serializable values.  This
-keeps runs inspectable and lets experiments replace one component at a time.
+控制循环刻意只交换可序列化的普通数据，使每次运行都能被检查、持久化，
+也便于在方案实验中一次替换一个组件，而不牵动其他部分。
 """
 
 from __future__ import annotations
@@ -13,19 +13,19 @@ from typing import Any, Mapping
 
 
 class AgentLoopError(Exception):
-    """Base class for expected, user-facing loop errors."""
+    """可预期且可以直接展示给用户的 Loop 错误基类。"""
 
 
 class ConfigError(AgentLoopError):
-    """Raised when a scenario is incomplete or internally inconsistent."""
+    """Scenario 不完整或内部配置互相冲突。"""
 
 
 class PathViolation(AgentLoopError):
-    """Raised when a tool attempts to leave or mutate a protected workspace."""
+    """工具试图逃出 Workspace 或修改受保护路径。"""
 
 
 class ApplyError(AgentLoopError):
-    """Raised when a completed run cannot be safely applied to a target."""
+    """已完成的 Run 无法安全发布到目标目录。"""
 
 
 class RunStatus(str, Enum):
@@ -166,7 +166,7 @@ class AgentDecision:
 
     @classmethod
     def from_mapping(cls, value: Mapping[str, Any]) -> "AgentDecision":
-        """Validate untrusted agent output before it reaches policy or tools."""
+        """在 Agent 输出进入策略层或工具层之前，将其当作不可信数据校验。"""
 
         try:
             kind = DecisionKind(value["kind"])
@@ -176,6 +176,7 @@ class AgentDecision:
         if not summary:
             raise ConfigError("agent decision summary cannot be empty")
 
+        # 拒绝未知字段，避免模型借由扩展字段向下游偷偷传递未定义语义。
         allowed = {"kind", "summary", "tool", "arguments", "reason"}
         unknown = set(value) - allowed
         if unknown:

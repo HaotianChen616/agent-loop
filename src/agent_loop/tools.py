@@ -1,4 +1,4 @@
-"""Explicitly registered tools are the only Agent-controlled side effects."""
+"""显式注册的工具是 Agent 能够触发副作用的唯一入口。"""
 
 from __future__ import annotations
 
@@ -10,6 +10,7 @@ from .types import AgentLoopError, RiskLevel, ToolResult, ToolStatus
 from .workspace import Workspace
 
 
+# 这里同时是传给 Agent 的工具说明。参数契约保持封闭，未知字段会被拒绝。
 TOOL_METADATA: dict[str, dict[str, Any]] = {
     "list_files": {
         "description": "List workspace file paths.",
@@ -51,6 +52,8 @@ TOOL_METADATA: dict[str, dict[str, Any]] = {
 
 
 class Tool(Protocol):
+    """所有工具都必须声明风险级别，以及是否会修改 Workspace。"""
+
     name: str
     risk: RiskLevel
     mutates_workspace: bool
@@ -118,7 +121,7 @@ class WriteFileTool:
 
 @dataclass(frozen=True)
 class MockExternalWriteTool:
-    """Exercise the approval path without touching a real external system."""
+    """在不访问真实外部系统的情况下演示人工审批路径。"""
 
     name: str = "mock_external_write"
     risk: RiskLevel = RiskLevel.EXTERNAL_WRITE
@@ -133,6 +136,8 @@ class MockExternalWriteTool:
 
 
 class ToolRegistry:
+    """持有可信工具实现，并把不可信参数转换为结构化 ToolResult。"""
+
     def __init__(self, workspace: Workspace, max_output_chars: int = 8_000) -> None:
         self.workspace = workspace
         tools: tuple[Tool, ...] = (

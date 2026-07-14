@@ -1,4 +1,4 @@
-"""Built-in MaaS providers and their small construction factory."""
+"""内置 MaaS Provider 及其最小构造工厂。"""
 
 from __future__ import annotations
 
@@ -19,7 +19,7 @@ def create_provider(
     max_output_tokens: int,
     **kwargs: Any,
 ) -> MaaSProvider:
-    """Create a configured provider without leaking protocol choices to CLI."""
+    """创建配置好的 Provider，不把厂商协议差异泄漏到 CLI。"""
 
     if name == "openai":
         return OpenAIResponsesProvider(

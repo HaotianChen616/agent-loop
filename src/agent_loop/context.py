@@ -1,4 +1,4 @@
-"""Build a bounded, inspectable context for one Agent iteration."""
+"""为一次 Agent 迭代构造有界、可检查的上下文。"""
 
 from __future__ import annotations
 
@@ -15,6 +15,8 @@ from .types import RunSpec, RunState
 
 @dataclass(frozen=True)
 class AgentContext:
+    """交给 Agent 的事实包，以及用于审计的结构化元数据。"""
+
     prompt: str
     goal: str
     criteria: tuple[str, ...]
@@ -27,6 +29,8 @@ class AgentContext:
 
 
 class ContextBuilder:
+    """从 Scenario、最近证据和剩余预算组装单轮上下文。"""
+
     def __init__(self, spec: RunSpec, tools: ToolRegistry) -> None:
         self.spec = spec
         self.tools = tools
@@ -42,8 +46,8 @@ class ContextBuilder:
         }
         definitions = self.tools.definitions(self.spec.allowed_tools)
 
-        # Put non-negotiable policy and recent evidence before skills.  If the
-        # context is truncated, the Agent still sees why the last attempt failed.
+        # 不可协商的规则和最近证据必须排在 Skills 前面。即使发生截断，Agent
+        # 仍能看到上一轮失败原因、剩余预算和可用工具，不会只拿到背景知识。
         fixed = {
             "rules": [
                 "Return exactly one structured decision.",

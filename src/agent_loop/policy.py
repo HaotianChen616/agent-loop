@@ -1,4 +1,4 @@
-"""Authorization, budgets, and evidence-based stop decisions."""
+"""动作授权、预算检查，以及基于验证证据的停止决策。"""
 
 from __future__ import annotations
 
@@ -19,6 +19,8 @@ class Authorization:
 
 
 class PolicyEngine:
+    """把工具风险映射为自动允许、人工审批或拒绝。"""
+
     def authorize(self, risk: RiskLevel, spec: RunSpec) -> Authorization:
         if risk in spec.policy.deny:
             return Authorization(False, False, f"risk {risk.value} is denied")
@@ -30,7 +32,7 @@ class PolicyEngine:
 
 
 class StopPolicy:
-    """Return decisions without mutating state so transitions stay in LoopEngine."""
+    """只返回决策而不修改状态，确保状态迁移始终由 LoopEngine 统一负责。"""
 
     def before_iteration(self, state: RunState, spec: RunSpec, elapsed_seconds: float) -> StopDecision:
         usage, limits = state.budget_usage, spec.budget

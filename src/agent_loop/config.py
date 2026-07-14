@@ -1,4 +1,4 @@
-"""Load and validate a teaching scenario from TOML."""
+"""从 TOML 加载并校验教学 Scenario。"""
 
 from __future__ import annotations
 
@@ -73,7 +73,7 @@ def _scenario_path(root: Path, value: str, label: str, *, directory: bool = Fals
 
 
 def _scenario_digest(root: Path) -> str:
-    """Bind a Run to every stable file in the Scenario control directory."""
+    """将 Run 绑定到 Scenario 控制目录中的全部稳定文件。"""
 
     files: set[Path] = set()
     for entry in root.rglob("*"):
@@ -95,7 +95,7 @@ def _scenario_digest(root: Path) -> str:
 
 
 def load_run_spec(path: str | Path) -> RunSpec:
-    """Read a scenario and freeze its resolved paths and content digest."""
+    """读取 Scenario，并冻结解析后的路径与内容摘要。"""
 
     scenario_file = Path(path).expanduser().resolve()
     if not scenario_file.is_file():
@@ -112,6 +112,7 @@ def load_run_spec(path: str | Path) -> RunSpec:
     if not criteria or len(criteria) != len(set(criteria)):
         raise ConfigError("acceptance_criteria must be non-empty and unique")
 
+    # Scenario 内引用只能相对当前目录解析，不能借配置读取仓库中的任意文件。
     root = scenario_file.parent
     workspace_data = _table(data, "workspace")
     seed = _scenario_path(root, _text(workspace_data, "seed"), "workspace.seed", directory=True)
@@ -127,6 +128,7 @@ def load_run_spec(path: str | Path) -> RunSpec:
     agent_data = _table(data, "agent")
     budget_data = _table(data, "budget")
     policy_data = _table(data, "policy")
+    # 三个风险集合必须互斥，否则同一动作会同时得到矛盾的授权结论。
     policy = PolicySpec(
         auto_allow=_risk_levels(policy_data, "auto_allow", PolicySpec().auto_allow),
         require_approval=_risk_levels(
@@ -178,6 +180,7 @@ def load_run_spec(path: str | Path) -> RunSpec:
     ):
         raise ConfigError("agent.model must be a non-empty string")
 
+    # RunSpec 只包含校验后的不可变配置；运行期不再直接依赖原始 TOML 字典。
     return RunSpec(
         schema_version=1,
         scenario_id=_text(data, "scenario_id"),

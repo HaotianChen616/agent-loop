@@ -1,4 +1,4 @@
-"""Agent adapters.  The deterministic adapter is also the teaching oracle."""
+"""Agent 适配器；确定性的 ScriptedAgent 同时充当教学场景的行为基准。"""
 
 from __future__ import annotations
 
@@ -11,13 +11,15 @@ from .types import AgentDecision, DecisionKind
 
 
 class AgentAdapter(Protocol):
+    """LoopEngine 依赖的最小 Agent 接口。"""
+
     name: str
 
     def next_action(self, context: AgentContext) -> AgentDecision: ...
 
 
 class ScriptedAgent:
-    """Return predeclared actions so tutorials and tests are reproducible."""
+    """按顺序返回预声明动作，让教程、测试和 CI 可以稳定复现。"""
 
     name = "scripted"
 
@@ -33,7 +35,8 @@ class ScriptedAgent:
         return cls([AgentDecision.from_mapping(item) for item in payload])
 
     def next_action(self, context: AgentContext) -> AgentDecision:
-        del context  # The script is intentionally deterministic, not adaptive.
+        # 教学脚本刻意不根据上下文临场决策；真实反馈仍由 Loop 完整构造和记录。
+        del context
         if self._index >= len(self._decisions):
             return AgentDecision(
                 DecisionKind.BLOCKED,
@@ -45,7 +48,7 @@ class ScriptedAgent:
         return decision
 
     def restore(self, completed_calls: int) -> None:
-        """Resume after a persisted call without replaying earlier decisions."""
+        """恢复时跳过已经持久化的调用，避免重复播放旧动作。"""
 
         self._index = min(max(0, completed_calls), len(self._decisions))
 

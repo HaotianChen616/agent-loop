@@ -1,4 +1,4 @@
-"""Durable run snapshots, append-only events, and artifacts."""
+"""持久化 Run 状态快照、追加式事件日志和大体积证据。"""
 
 from __future__ import annotations
 
@@ -19,7 +19,7 @@ def utc_now() -> str:
 
 
 def jsonable(value: Any) -> Any:
-    """Convert dataclasses and enums to stable JSON-compatible values."""
+    """把 dataclass 和 Enum 转换成稳定、可写入 JSON 的普通值。"""
 
     if hasattr(value, "__dataclass_fields__"):
         return {key: jsonable(item) for key, item in asdict(value).items()}
@@ -33,7 +33,7 @@ def jsonable(value: Any) -> Any:
 
 
 class StateStore:
-    """Use state.json as recovery truth and events.jsonl as its audit trail."""
+    """以 state.json 作为恢复事实，以 events.jsonl 作为追加式审计轨迹。"""
 
     def __init__(
         self,
@@ -103,7 +103,7 @@ class StateStore:
         return tuple(json.loads(line) for line in path.read_text(encoding="utf-8").splitlines())
 
     def recover(self, run_id: str) -> RunState:
-        """Reconcile the audit tail with state.json without replaying side effects."""
+        """协调事件尾部与状态快照，但绝不通过重放事件来重复副作用。"""
 
         state = self.load(run_id)
         path = self.run_dir(run_id) / "events.jsonl"
@@ -122,7 +122,7 @@ class StateStore:
                 break
 
         if truncated_tail:
-            # A partial final write is safe to discard because state was committed first.
+            # checkpoint 总是先提交 state，因此不完整的最后一条事件可以安全丢弃。
             path.write_text(
                 "".join(json.dumps(item, ensure_ascii=False, sort_keys=True) + "\n" for item in valid),
                 encoding="utf-8",
@@ -142,6 +142,7 @@ class StateStore:
             state.stop_reason = "event log is ahead of or corrupt relative to state"
             reasons.append(state.stop_reason)
         if state.in_flight_action:
+            # 工具可能已经产生副作用但尚未来得及记录结果，自动重试会造成重复执行。
             state.status = RunStatus.NEEDS_REVIEW
             state.stop_reason = "an in-flight action has an unknown result"
             reasons.append(state.stop_reason)
@@ -160,7 +161,7 @@ class StateStore:
         duration_ms: int = 0,
         usage: dict[str, Any] | None = None,
     ) -> LoopEvent:
-        """Commit state first, then append an event referencing that revision."""
+        """先原子提交状态，再追加一条指向该 revision 的事件。"""
 
         state.revision += 1
         state.event_sequence += 1
@@ -187,7 +188,7 @@ class StateStore:
         return event
 
     def write_artifact(self, run_id: str, name: str, content: str | bytes) -> str:
-        """Write large evidence outside events and return a run-relative reference."""
+        """把大体积证据写在事件之外，并返回 Run 内的相对引用。"""
 
         relative = Path(name)
         if relative.is_absolute() or ".." in relative.parts:
@@ -203,7 +204,7 @@ class StateStore:
     def write_application(
         self, run_id: str, application_id: str, record: dict[str, Any]
     ) -> str:
-        """Atomically persist an apply audit without changing Run state."""
+        """原子持久化 Apply 审计记录，但不改变已经终止的 Run 状态。"""
 
         if not application_id or not application_id.isalnum():
             raise ValueError("application_id must be alphanumeric")
