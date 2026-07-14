@@ -106,9 +106,12 @@ deny = ["irreversible"]
 
 - `kind` 是 `scripted` 或 `llm`，默认 `scripted`；
 - ScriptedAgent 实际运行时必须提供 `script`；
+- LLM 的 `provider` 可选 `openai` 或 `zhipu-coding-plan`，默认 `openai`；
 - LLM Agent 必须通过 `model` 或 CLI `--model` 显式指定模型；
 - `request_timeout_seconds` 默认 30；
 - `max_output_tokens` 默认 1000。
+
+Provider 配置、环境变量和新增实现步骤见 [PROVIDERS.md](PROVIDERS.md)。
 
 ### `[verification]`
 
