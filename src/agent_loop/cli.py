@@ -18,10 +18,16 @@ from .types import AgentLoopError, LoopEvent, RunState, RunStatus
 
 
 class ConsoleTrace:
+    """把 LoopEvent 渲染成适合课堂演示的单行轨迹。"""
+
     def __init__(self, step: bool = False) -> None:
+        """`step=True` 时每条事件后等待回车，便于逐步讲解。"""
+
         self.step = step
 
     def __call__(self, event: LoopEvent) -> None:
+        """作为 StateStore 事件监听器，实时打印刚持久化的事件。"""
+
         label = event.event_type.upper().replace("_", " ")
         print(f"[{label:<24}] {event.summary}")
         if self.step:
@@ -29,11 +35,15 @@ class ConsoleTrace:
 
     @staticmethod
     def render_saved(event: dict) -> None:
+        """渲染从 events.jsonl 读取的普通字典，用于 inspect。"""
+
         label = str(event["event_type"]).upper().replace("_", " ")
         print(f"[{label:<24}] {event['summary']}")
 
 
 def _parser() -> argparse.ArgumentParser:
+    """声明 run、resume、inspect 和 apply 四个稳定 CLI 入口。"""
+
     parser = argparse.ArgumentParser(prog="agent-loop", description=__doc__)
     subcommands = parser.add_subparsers(dest="command", required=True)
 
@@ -101,6 +111,8 @@ def _agent(
 
 
 def _exit_code(state: RunState) -> int:
+    """把 Run 终态映射为 CLI 退出码：成功 0、待复核 2、其他 1。"""
+
     if state.status is RunStatus.COMPLETED:
         return 0
     if state.status is RunStatus.NEEDS_REVIEW:
@@ -109,6 +121,8 @@ def _exit_code(state: RunState) -> int:
 
 
 def _print_result(state: RunState) -> None:
+    """打印便于脚本和人阅读的最终运行摘要。"""
+
     print(
         f"\nrun={state.run_id} status={state.status.value} "
         f"iterations={state.iteration} reason={state.stop_reason or '-'}"
@@ -116,6 +130,8 @@ def _print_result(state: RunState) -> None:
 
 
 def _confirm_apply(preview: ApplyPreview, assume_yes: bool) -> bool:
+    """先展示逐文件 Apply 预览，再取得显式确认；EOF 按拒绝处理。"""
+
     print(f"Apply {len(preview.changes)} file(s) to {preview.target_dir}:")
     for change in preview.changes:
         print(f"  {change.operation:<6} {change.path} ({change.size_bytes} bytes)")
@@ -128,7 +144,11 @@ def _confirm_apply(preview: ApplyPreview, assume_yes: bool) -> bool:
 
 
 def main(argv: Sequence[str] | None = None) -> int:
-    """分发 CLI 子命令，并把预期错误收敛为稳定退出码。"""
+    """分发 CLI 子命令，并把预期错误收敛为稳定退出码。
+
+    `inspect/apply` 操作既有 Run；`run/resume` 才加载 Scenario、构造 Agent 和
+    LoopEngine。这里只负责组装，不包含状态迁移或工具执行规则。
+    """
 
     args = _parser().parse_args(argv)
     try:
