@@ -1,0 +1,68 @@
+"""Provider-independent Agent adapter for model-as-a-service backends."""
+
+from __future__ import annotations
+
+import json
+
+from .context import AgentContext
+from .providers import MaaSProvider
+from .types import AgentDecision
+
+
+ADAPTER_INSTRUCTIONS = """You propose one action inside an externally controlled loop.
+Use only a tool described in the input. You cannot declare success; request
+verification when the evidence should be checked. Return exactly one JSON
+object matching the supplied schema. The arguments field must be a JSON-encoded
+object string, or "{}" when no tool is requested."""
+
+DECISION_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "kind": {
+            "type": "string",
+            "enum": ["tool_call", "request_verification", "blocked"],
+        },
+        "summary": {"type": "string"},
+        "tool": {"type": ["string", "null"]},
+        "arguments": {
+            "type": "string",
+            "description": "A JSON-encoded object; use {} when no tool is requested.",
+        },
+        "reason": {"type": ["string", "null"]},
+    },
+    "required": ["kind", "summary", "tool", "arguments", "reason"],
+    "additionalProperties": False,
+}
+
+
+class MaaSAgent:
+    """Validate one provider response into the loop's AgentDecision contract."""
+
+    name = "llm"
+
+    def __init__(self, provider: MaaSProvider) -> None:
+        self.provider = provider
+        self.provider_name = provider.name
+        self.model = provider.model
+        self.last_usage: dict[str, int] | None = None
+
+    def next_action(self, context: AgentContext) -> AgentDecision:
+        response = self.provider.complete(
+            instructions=ADAPTER_INSTRUCTIONS,
+            prompt=context.prompt,
+            schema=DECISION_SCHEMA,
+        )
+        self.last_usage = dict(response.usage) or None
+        if not isinstance(response.output_text, str) or not response.output_text.strip():
+            raise ValueError("model returned no structured decision")
+        payload = json.loads(response.output_text)
+        if not isinstance(payload, dict):
+            raise ValueError("model decision must be a JSON object")
+        encoded_arguments = payload.get("arguments")
+        if not isinstance(encoded_arguments, str):
+            raise ValueError("model arguments must be a JSON-encoded object string")
+        arguments = json.loads(encoded_arguments)
+        if not isinstance(arguments, dict):
+            raise ValueError("decoded model arguments must be an object")
+        payload["arguments"] = arguments
+        return AgentDecision.from_mapping(payload)

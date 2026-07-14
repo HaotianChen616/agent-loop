@@ -7,6 +7,7 @@ import tomllib
 from pathlib import Path
 from typing import Any, Mapping
 
+from .providers import PROVIDER_NAMES
 from .types import (
     AgentSpec,
     BudgetLimits,
@@ -158,6 +159,19 @@ def load_run_spec(path: str | Path) -> RunSpec:
     agent_kind = agent_data.get("kind", "scripted")
     if agent_kind not in {"scripted", "llm"}:
         raise ConfigError("agent.kind must be 'scripted' or 'llm'")
+    agent_provider = agent_data.get("provider")
+    if agent_provider is not None and (
+        not isinstance(agent_provider, str) or not agent_provider.strip()
+    ):
+        raise ConfigError("agent.provider must be a non-empty string")
+    if agent_kind == "scripted":
+        if agent_provider is not None:
+            raise ConfigError("agent.provider can only be used with agent.kind = 'llm'")
+        agent_provider = None
+    else:
+        agent_provider = agent_provider or "openai"
+        if agent_provider not in PROVIDER_NAMES:
+            raise ConfigError(f"unknown agent.provider: {agent_provider}")
     agent_model = agent_data.get("model")
     if agent_model is not None and (
         not isinstance(agent_model, str) or not agent_model.strip()
@@ -182,11 +196,14 @@ def load_run_spec(path: str | Path) -> RunSpec:
             str(seed), "copy", _strings(workspace_data, "read_only")
         ),
         agent=AgentSpec(
-            str(agent_kind),
-            _positive(agent_data, "request_timeout_seconds", 30),
-            _positive(agent_data, "max_output_tokens", 1_000),
-            agent_model,
-            agent_script,
+            kind=str(agent_kind),
+            request_timeout_seconds=_positive(
+                agent_data, "request_timeout_seconds", 30
+            ),
+            max_output_tokens=_positive(agent_data, "max_output_tokens", 1_000),
+            model=agent_model,
+            script=agent_script,
+            provider=agent_provider,
         ),
         verification=VerificationSpec(
             str(script),

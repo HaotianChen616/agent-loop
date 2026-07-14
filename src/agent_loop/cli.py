@@ -11,7 +11,8 @@ from .agent import ScriptedAgent
 from .application import ApplyPreview, apply_run
 from .config import load_run_spec
 from .engine import LoopEngine
-from .openai_agent import OpenAIResponsesAgent
+from .maas_agent import MaaSAgent
+from .providers import PROVIDER_NAMES, create_provider
 from .storage import StateStore
 from .types import AgentLoopError, LoopEvent, RunState, RunStatus
 
@@ -41,6 +42,7 @@ def _parser() -> argparse.ArgumentParser:
     run.add_argument("--run-id")
     run.add_argument("--runs-dir", type=Path, default=Path(".agent-loop/runs"))
     run.add_argument("--agent", choices=("scripted", "llm"))
+    run.add_argument("--provider", choices=PROVIDER_NAMES)
     run.add_argument("--model")
     run.add_argument("--step", action="store_true")
 
@@ -49,6 +51,7 @@ def _parser() -> argparse.ArgumentParser:
     resume.add_argument("--scenario", type=Path)
     resume.add_argument("--runs-dir", type=Path, default=Path(".agent-loop/runs"))
     resume.add_argument("--agent", choices=("scripted", "llm"))
+    resume.add_argument("--provider", choices=PROVIDER_NAMES)
     resume.add_argument("--model")
     decision = resume.add_mutually_exclusive_group()
     decision.add_argument("--approve", action="store_true")
@@ -67,19 +70,30 @@ def _parser() -> argparse.ArgumentParser:
     return parser
 
 
-def _agent(spec, kind: str | None = None, model: str | None = None):
+def _agent(
+    spec,
+    kind: str | None = None,
+    model: str | None = None,
+    provider: str | None = None,
+):
     selected = kind or spec.agent.kind
     if selected == "scripted":
         if model:
             raise ValueError("--model can only be used with --agent llm")
+        if provider:
+            raise ValueError("--provider can only be used with --agent llm")
         if not spec.agent.script:
             raise ValueError("scripted scenario requires agent.script")
         return ScriptedAgent.from_file(spec.agent.script)
     if selected == "llm":
-        return OpenAIResponsesAgent(
-            model or spec.agent.model or "",
-            spec.agent.request_timeout_seconds,
-            spec.agent.max_output_tokens,
+        selected_provider = provider or spec.agent.provider or "openai"
+        return MaaSAgent(
+            create_provider(
+                selected_provider,
+                model or spec.agent.model or "",
+                spec.agent.request_timeout_seconds,
+                spec.agent.max_output_tokens,
+            )
         )
     raise ValueError(f"unknown agent kind: {selected}")
 
@@ -137,9 +151,9 @@ def main(argv: Sequence[str] | None = None) -> int:
         store = StateStore(args.runs_dir, trace)
         if args.command == "run":
             spec = load_run_spec(args.scenario)
-            state = LoopEngine(spec, _agent(spec, args.agent, args.model), store).start(
-                args.run_id
-            )
+            state = LoopEngine(
+                spec, _agent(spec, args.agent, args.model, args.provider), store
+            ).start(args.run_id)
         else:
             manifest = store.load_manifest(args.run_id)
             saved_scenario = manifest["scenario"]
@@ -156,6 +170,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                     spec,
                     args.agent or runtime.get("agent"),
                     args.model or runtime.get("model"),
+                    args.provider or runtime.get("provider"),
                 ),
                 store,
             ).resume(

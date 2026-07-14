@@ -97,6 +97,7 @@ class AgentSpec:
     max_output_tokens: int = 1_000
     model: str | None = None
     script: str | None = None
+    provider: str | None = None
 
 
 @dataclass(frozen=True)

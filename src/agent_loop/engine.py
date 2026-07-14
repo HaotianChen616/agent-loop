@@ -76,6 +76,7 @@ class LoopEngine:
             run_id,
             {
                 "agent": self.agent.name,
+                "provider": getattr(self.agent, "provider_name", None),
                 "model": getattr(self.agent, "model", None),
             },
         )
@@ -90,11 +91,19 @@ class LoopEngine:
         if manifest["scenario"]["digest"] != self.spec.digest:
             raise ConfigError("scenario changed since the run was created")
         runtime = manifest.get("runtime")
-        if runtime and (
-            runtime.get("agent") != self.agent.name
-            or runtime.get("model") != getattr(self.agent, "model", None)
-        ):
-            raise ConfigError("resume must use the Run's original Agent and model")
+        if runtime:
+            expected_provider = runtime.get("provider")
+            # Manifests created before the provider boundary implicitly used OpenAI.
+            if expected_provider is None and runtime.get("agent") == "llm":
+                expected_provider = "openai"
+            if (
+                runtime.get("agent") != self.agent.name
+                or expected_provider != getattr(self.agent, "provider_name", None)
+                or runtime.get("model") != getattr(self.agent, "model", None)
+            ):
+                raise ConfigError(
+                    "resume must use the Run's original Agent, provider, and model"
+                )
         if state.is_terminal:
             return state
 
