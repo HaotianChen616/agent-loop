@@ -1,4 +1,4 @@
-"""Command-line trigger and teaching trace renderer."""
+"""命令行触发器，以及面向教学的事件轨迹渲染器。"""
 
 from __future__ import annotations
 
@@ -76,6 +76,8 @@ def _agent(
     model: str | None = None,
     provider: str | None = None,
 ):
+    """根据 Scenario 与命令行覆盖项创建唯一的 Agent 适配器。"""
+
     selected = kind or spec.agent.kind
     if selected == "scripted":
         if model:
@@ -126,8 +128,11 @@ def _confirm_apply(preview: ApplyPreview, assume_yes: bool) -> bool:
 
 
 def main(argv: Sequence[str] | None = None) -> int:
+    """分发 CLI 子命令，并把预期错误收敛为稳定退出码。"""
+
     args = _parser().parse_args(argv)
     try:
+        # inspect 和 apply 只读取既有 Run，不需要重新创建 Agent。
         if args.command == "inspect":
             store = StateStore(args.runs_dir)
             state = store.load(args.run_id)
@@ -147,6 +152,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             print(f"application={record['application_id']} status={record['status']}")
             return 0 if record["status"] == "applied" else 1
 
+        # run/resume 共享同一事件监听器，因此现场输出与持久化事件保持一致。
         trace = ConsoleTrace(args.step)
         store = StateStore(args.runs_dir, trace)
         if args.command == "run":
