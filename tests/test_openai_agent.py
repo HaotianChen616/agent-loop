@@ -57,6 +57,7 @@ class OpenAIResponsesAgentTests(unittest.TestCase):
         self.assertEqual(request["timeout"], 7)
         self.assertIs(request["store"], False)
         self.assertIs(request["text"]["format"]["strict"], True)
+        self.assertEqual(agent.provider_name, "openai")
         self.assertEqual(agent.last_usage["total_tokens"], 18)
 
     def test_incomplete_response_is_never_used_as_an_action(self) -> None:

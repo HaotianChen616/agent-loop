@@ -62,6 +62,20 @@ class ResumeTests(unittest.TestCase):
         with self.assertRaisesRegex(ConfigError, "original Agent"):
             LoopEngine(engine.spec, wrong_agent, store).resume("agent-change-run")
 
+    def test_resume_rejects_a_different_provider(self) -> None:
+        engine, store = self.make_engine()
+        engine.agent.name = "llm"
+        engine.agent.provider_name = "openai"
+        engine.agent.model = "same-model"
+        engine.start("provider-change-run")
+
+        wrong_agent = ScriptedAgent.from_file(engine.spec.agent.script or "")
+        wrong_agent.name = "llm"
+        wrong_agent.provider_name = "zhipu-coding-plan"
+        wrong_agent.model = "same-model"
+        with self.assertRaisesRegex(ConfigError, "provider"):
+            LoopEngine(engine.spec, wrong_agent, store).resume("provider-change-run")
+
 
 if __name__ == "__main__":
     unittest.main()

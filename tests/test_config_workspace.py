@@ -88,6 +88,36 @@ class ConfigTests(unittest.TestCase):
 
             self.assertNotEqual(load_run_spec(fixture.path).digest, before)
 
+    def test_loads_a_zhipu_coding_plan_provider(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            fixture = ScenarioFixture(Path(directory))
+            fixture.path.write_text(
+                SCENARIO
+                + '\n\n[agent]\nkind = "llm"\nprovider = "zhipu-coding-plan"'
+                + '\nmodel = "GLM-5.1"\n'
+            )
+
+            spec = load_run_spec(fixture.path)
+
+            self.assertEqual(spec.agent.kind, "llm")
+            self.assertEqual(spec.agent.provider, "zhipu-coding-plan")
+            self.assertEqual(spec.agent.model, "GLM-5.1")
+
+    def test_rejects_unknown_or_scripted_providers(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            fixture = ScenarioFixture(Path(directory))
+            fixture.path.write_text(
+                SCENARIO + '\n\n[agent]\nkind = "llm"\nprovider = "unknown"\n'
+            )
+            with self.assertRaisesRegex(ConfigError, "unknown agent.provider"):
+                load_run_spec(fixture.path)
+
+            fixture.path.write_text(
+                SCENARIO + '\n\n[agent]\nkind = "scripted"\nprovider = "openai"\n'
+            )
+            with self.assertRaisesRegex(ConfigError, "only be used"):
+                load_run_spec(fixture.path)
+
 
 class WorkspaceTests(unittest.TestCase):
     def make_workspace(self, directory: str) -> Workspace:
