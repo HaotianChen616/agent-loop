@@ -19,6 +19,8 @@ class OpenAIResponsesAgent(MaaSAgent):
         *,
         client: Any | None = None,
     ) -> None:
+        """按旧签名构造 OpenAIResponsesProvider，便于已有调用方平滑迁移。"""
+
         super().__init__(
             OpenAIResponsesProvider(
                 model,

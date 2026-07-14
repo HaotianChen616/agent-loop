@@ -27,6 +27,12 @@ class ZhipuCodingPlanProvider:
         base_url: str = ZHIPU_CODING_BASE_URL,
         client: Any | None = None,
     ) -> None:
+        """校验请求边界、读取 ZAI_API_KEY，并构造 Coding Plan 客户端。
+
+        `base_url` 默认使用智谱 Coding 专属端点；测试可以注入 client 或显式 key，
+        生产路径不会记录和回传密钥。
+        """
+
         if not isinstance(model, str) or not model.strip():
             raise ValueError("an explicit Zhipu model is required")
         if request_timeout_seconds <= 0 or max_output_tokens <= 0:
@@ -62,6 +68,13 @@ class ZhipuCodingPlanProvider:
         prompt: str,
         schema: Mapping[str, Any],
     ) -> MaaSResponse:
+        """通过 Chat Completions JSON 模式请求一次 Agent 决策。
+
+        因兼容端点不提供与 Responses 相同的 strict schema 参数，完整 Schema 会加入
+        system 消息，返回后仍由 MaaSAgent 本地严格校验。只有 finish_reason=stop 的
+        非空首选项才可进入决策层。
+        """
+
         schema_text = json.dumps(dict(schema), ensure_ascii=False, sort_keys=True)
         response = self.client.chat.completions.create(
             model=self.model,

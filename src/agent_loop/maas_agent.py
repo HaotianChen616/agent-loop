@@ -41,12 +41,20 @@ class MaaSAgent:
     name = "llm"
 
     def __init__(self, provider: MaaSProvider) -> None:
+        """绑定一个已配置 Provider，并暴露可冻结到 manifest 的名称与模型。"""
+
         self.provider = provider
         self.provider_name = provider.name
         self.model = provider.model
         self.last_usage: dict[str, int] | None = None
 
     def next_action(self, context: AgentContext) -> AgentDecision:
+        """请求一次结构化补全，并在本地转换成 AgentDecision。
+
+        Provider 负责厂商协议、拒绝/截断判断和 Token 字段归一化；本方法负责 JSON
+        形态及 arguments 二次解析，最后仍调用 AgentDecision.from_mapping 做语义校验。
+        """
+
         # Provider 只负责协议翻译；决策语义仍在本地统一校验，不能信任模型输出。
         response = self.provider.complete(
             instructions=ADAPTER_INSTRUCTIONS,

@@ -8,6 +8,8 @@ from .base import MaaSResponse, field_value, normalized_usage
 
 
 def _find_refusal(response: Any) -> str | None:
+    """遍历 Responses 内容块，提取第一条模型拒绝信息。"""
+
     for item in field_value(response, "output", ()) or ():
         for part in field_value(item, "content", ()) or ():
             if field_value(part, "type") == "refusal":
@@ -28,6 +30,8 @@ class OpenAIResponsesProvider:
         *,
         client: Any | None = None,
     ) -> None:
+        """校验请求边界，并按需创建关闭 SDK 重试的 OpenAI 客户端。"""
+
         if not isinstance(model, str) or not model.strip():
             raise ValueError("an explicit OpenAI model is required")
         if request_timeout_seconds <= 0 or max_output_tokens <= 0:
@@ -51,6 +55,12 @@ class OpenAIResponsesProvider:
         prompt: str,
         schema: Mapping[str, Any],
     ) -> MaaSResponse:
+        """调用 Responses API，并只接受 completed 的严格 JSON Schema 输出。
+
+        请求禁用服务端存储，显式设置超时和输出 Token 上限；拒绝、不完整状态和空
+        文本都转换为异常，由外层 Loop 记录并受重试预算约束。
+        """
+
         response = self.client.responses.create(
             model=self.model,
             instructions=instructions,
